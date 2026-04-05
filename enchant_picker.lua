@@ -180,12 +180,16 @@ for i = 1, 3 do
         Callback     = function(val) profiles[i].active = val end,
     })
 
+    local function getOpt(opt)
+        return type(opt) == "table" and opt[1] or opt
+    end
+
     pTab:CreateDropdown({
         Name            = "Slot 1",
         Options         = enchantList,
         CurrentOption   = "Any",
         MultipleOptions = false,
-        Callback        = function(opt) profiles[i].slots[1] = opt end,
+        Callback        = function(opt) profiles[i].slots[1] = getOpt(opt) end,
     })
 
     pTab:CreateDropdown({
@@ -193,7 +197,7 @@ for i = 1, 3 do
         Options         = enchantList,
         CurrentOption   = "Any",
         MultipleOptions = false,
-        Callback        = function(opt) profiles[i].slots[2] = opt end,
+        Callback        = function(opt) profiles[i].slots[2] = getOpt(opt) end,
     })
 
     pTab:CreateDropdown({
@@ -201,6 +205,18 @@ for i = 1, 3 do
         Options         = enchantList,
         CurrentOption   = "Any",
         MultipleOptions = false,
-        Callback        = function(opt) profiles[i].slots[3] = opt end,
+        Callback        = function(opt) profiles[i].slots[3] = getOpt(opt) end,
+    })
+
+    pTab:CreateButton({
+        Name     = "Debug: print slots",
+        Callback = function()
+            local s = profiles[i].slots
+            Rayfield:Notify({
+                Title   = "Profile "..i.." slots",
+                Content = s[1].." | "..s[2].." | "..s[3],
+                Duration = 4,
+            })
+        end,
     })
 end
