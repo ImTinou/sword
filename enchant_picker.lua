@@ -4,7 +4,7 @@ local player       = game:GetService("Players").LocalPlayer
 local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remoteevent
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "0.03"
+local VERSION     = "0.05"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
@@ -336,13 +336,19 @@ Tab:CreateSlider({
 
 Tab:CreateSection("Discord Webhook")
 
+local webhookLbl = Tab:CreateLabel(WEBHOOK_URL ~= "" and "Webhook: Set" or "Webhook: Not set")
+
 Tab:CreateInput({
     Name        = "Webhook URL",
     PlaceholderText = "https://discord.com/api/webhooks/...",
-    CurrentValue = WEBHOOK_URL,
     RemoveTextAfterFocusLost = false,
     Flag        = "WebhookURL",
-    Callback    = function(val) WEBHOOK_URL = val end,
+    Callback    = function(val)
+        WEBHOOK_URL = val
+        pcall(function()
+            webhookLbl:Set(val ~= "" and "Webhook: Set" or "Webhook: Not set")
+        end)
+    end,
 })
 
 Tab:CreateSection("Control")
