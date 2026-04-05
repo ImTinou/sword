@@ -4,7 +4,7 @@ local player       = game:GetService("Players").LocalPlayer
 local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remoteevent
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "0.05"
+local VERSION     = "0.06"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
@@ -259,11 +259,14 @@ local function sendWebhook(sword, enchants, info)
 end
 
 local childAddedConn = nil
+local processingSwords = {}  -- guard anti-double-pickup
 
 local function handleSword(sword, lbl)
     if not scanning then return end
+    local swordName = sword.Name
+    if processingSwords[swordName] then return end
     if not isProtected(sword) and swordMatches(sword) then
-        -- Lire les donnees AVANT le pickup
+        processingSwords[swordName] = true
         local enchants = getSwordEnchants(sword)
         local info     = getSwordInfo(sword)
         flyPickup(sword)
@@ -271,38 +274,31 @@ local function handleSword(sword, lbl)
         pcall(function() lbl:Set("Sniped! Total: "..totalPicked) end)
         Rayfield:Notify({Title="Sword Found!", Content=table.concat(enchants,", "), Duration=3})
         sendWebhook(sword, enchants, info)
+        task.delay(5, function() processingSwords[swordName] = nil end)
     end
 end
 
 local function startScan(lbl)
     scanning = true
 
-    -- Scan initial des swords deja presentes
-    task.spawn(function()
-        for _, sword in pairs(workspace.Swords:GetChildren()) do
-            if not scanning then break end
-            handleSword(sword, lbl)
-        end
-    end)
-
-    -- Event-based: reagit instantanement quand une sword apparait
+    -- ChildAdded: detection instantanee
     if childAddedConn then childAddedConn:Disconnect() end
     childAddedConn = workspace.Swords.ChildAdded:Connect(function(sword)
-        -- Attendre que les enchants soient charges (retry max 2s)
-        local tries = 0
-        while tries < 20 do
-            task.wait(0.1)
-            tries = tries + 1
-            if not sword.Parent then return end  -- sword disparue entre temps
-            if #getSwordEnchants(sword) > 0 then break end
-        end
+        task.wait(0.3)  -- petit délai pour que les enchants se chargent
+        if not sword.Parent then return end
         handleSword(sword, lbl)
     end)
 
-    -- Polling de fallback
+    -- Polling: re-scan complet toutes les SCAN_RATE secondes (rattrape les rates)
     task.spawn(function()
         while scanning do
-            pcall(function() lbl:Set("Scanning | Total: "..totalPicked) end)
+            pcall(function()
+                for _, sword in pairs(workspace.Swords:GetChildren()) do
+                    if not scanning then break end
+                    handleSword(sword, lbl)
+                end
+                lbl:Set("Scanning | Total: "..totalPicked)
+            end)
             task.wait(SCAN_RATE)
         end
         if childAddedConn then childAddedConn:Disconnect() end
@@ -338,7 +334,7 @@ Tab:CreateToggle({
     Name         = "Match all 3 enchants per profile",
     CurrentValue = MATCH_ALL,
     Flag         = "MatchAll",
-    Callback     = function(val) MATCH_ALL = val end,
+    Callback     = function(val) MATCH_ALL = val saveConfig() end,
 })
 
 Tab:CreateSlider({
@@ -347,12 +343,17 @@ Tab:CreateSlider({
     Increment    = 0.1,
     CurrentValue = SCAN_RATE,
     Flag         = "ScanRate",
-    Callback     = function(val) SCAN_RATE = val end,
+    Callback     = function(val) SCAN_RATE = val saveConfig() end,
 })
 
 Tab:CreateSection("Discord Webhook")
 
-local webhookLbl = Tab:CreateLabel(WEBHOOK_URL ~= "" and "Webhook: Set" or "Webhook: Not set")
+local function webhookStatus()
+    if WEBHOOK_URL == "" then return "Webhook: Not set" end
+    return "Webhook: ..."..(WEBHOOK_URL:sub(-20))
+end
+
+local webhookLbl = Tab:CreateLabel(webhookStatus())
 
 Tab:CreateInput({
     Name        = "Webhook URL",
@@ -360,10 +361,11 @@ Tab:CreateInput({
     RemoveTextAfterFocusLost = false,
     Flag        = "WebhookURL",
     Callback    = function(val)
+        if val == "" then return end  -- ignore si vide
         WEBHOOK_URL = val
-        pcall(function()
-            webhookLbl:Set(val ~= "" and "Webhook: Set" or "Webhook: Not set")
-        end)
+        saveConfig()  -- auto-save
+        pcall(function() webhookLbl:Set(webhookStatus()) end)
+        Rayfield:Notify({Title="Webhook", Content="URL sauvegardee!", Duration=2})
     end,
 })
 
@@ -399,7 +401,7 @@ MiscTab:CreateToggle({
     Name         = "Anti-AFK",
     CurrentValue = ANTI_AFK,
     Flag         = "AntiAFK",
-    Callback     = function(val) ANTI_AFK = val end,
+    Callback     = function(val) ANTI_AFK = val saveConfig() end,
 })
 
 MiscTab:CreateSection("Configuration")
@@ -651,7 +653,7 @@ for i = 1, 3 do
         Name         = "Enable Profile "..i,
         CurrentValue = prof.active,
         Flag         = "Profile"..i.."Active",
-        Callback     = function(val) profiles[i].active = val end,
+        Callback     = function(val) profiles[i].active = val saveConfig() end,
     })
 
     local function getOpt(opt)
@@ -664,7 +666,7 @@ for i = 1, 3 do
         CurrentOption   = prof.slots[1],
         MultipleOptions = false,
         Flag            = "Profile"..i.."Slot1",
-        Callback        = function(opt) profiles[i].slots[1] = getOpt(opt) end,
+        Callback        = function(opt) profiles[i].slots[1] = getOpt(opt) saveConfig() end,
     })
 
     pTab:CreateDropdown({
@@ -673,7 +675,7 @@ for i = 1, 3 do
         CurrentOption   = prof.slots[2],
         MultipleOptions = false,
         Flag            = "Profile"..i.."Slot2",
-        Callback        = function(opt) profiles[i].slots[2] = getOpt(opt) end,
+        Callback        = function(opt) profiles[i].slots[2] = getOpt(opt) saveConfig() end,
     })
 
     pTab:CreateDropdown({
@@ -682,7 +684,7 @@ for i = 1, 3 do
         CurrentOption   = prof.slots[3],
         MultipleOptions = false,
         Flag            = "Profile"..i.."Slot3",
-        Callback        = function(opt) profiles[i].slots[3] = getOpt(opt) end,
+        Callback        = function(opt) profiles[i].slots[3] = getOpt(opt) saveConfig() end,
     })
 
 end
