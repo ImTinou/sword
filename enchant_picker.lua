@@ -317,7 +317,16 @@ local Window = Rayfield:CreateWindow({
     LoadingTitle    = "TinouHub v"..VERSION,
     LoadingSubtitle = "Sword Factory X",
     ConfigurationSaving = { Enabled = false },
-    KeySystem       = false,
+    KeySystem       = true,
+    KeySettings     = {
+        Title    = "TinouHub",
+        Subtitle = "Key System",
+        Note     = "Demande ta cle a ImTinou",
+        FileName = "TinouHubKey",
+        SaveKey  = true,
+        GrabKeyFromSite = false,
+        Key      = {"tinoukey1", "tinoukey2", "tinoukey3"},
+    },
 })
 
 -- Tab principal
