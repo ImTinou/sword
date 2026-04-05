@@ -4,10 +4,11 @@ local player       = game:GetService("Players").LocalPlayer
 local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remoteevent
 local TweenService = game:GetService("TweenService")
 
+local VERSION     = "1.0.0"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
-local WEBHOOK_URL = "" -- colle ton webhook Discord ici
+local WEBHOOK_URL = ""
 
 -- Anti-AFK
 local VirtualUser = game:GetService("VirtualUser")
@@ -166,7 +167,7 @@ local function sendWebhook(sword, enchants)
                     description = "**"..player.Name.."** picked up a matching sword!",
                     color       = color,
                     fields      = fields,
-                    footer      = { text = "TinouHub | Sword Factory X" },
+                    footer      = { text = "TinouHub v"..VERSION.." | Sword Factory X" },
                     timestamp   = os.date("!%Y-%m-%dT%H:%M:%SZ"),
                 }}
             })
@@ -220,8 +221,8 @@ end
 -- GUI
 
 local Window = Rayfield:CreateWindow({
-    Name            = "Sword Enchant Picker",
-    LoadingTitle    = "Enchant Picker",
+    Name            = "TinouHub | Sword Factory X",
+    LoadingTitle    = "TinouHub v"..VERSION,
     LoadingSubtitle = "Sword Factory X",
     ConfigurationSaving = { Enabled = true, FolderName = "SwordPicker", FileName = "config" },
     KeySystem       = false,
