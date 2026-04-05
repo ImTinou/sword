@@ -304,7 +304,7 @@ local Window = Rayfield:CreateWindow({
     Name            = "TinouHub | Sword Factory X",
     LoadingTitle    = "TinouHub v"..VERSION,
     LoadingSubtitle = "Sword Factory X",
-    ConfigurationSaving = { Enabled = true, FolderName = "SwordPicker", FileName = "config" },
+    ConfigurationSaving = { Enabled = false },
     KeySystem       = false,
 })
 
@@ -315,7 +315,7 @@ Tab:CreateSection("Options")
 
 Tab:CreateToggle({
     Name         = "Match all 3 enchants per profile",
-    CurrentValue = true,
+    CurrentValue = MATCH_ALL,
     Flag         = "MatchAll",
     Callback     = function(val) MATCH_ALL = val end,
 })
@@ -324,7 +324,7 @@ Tab:CreateSlider({
     Name         = "Scan Rate (s)",
     Range        = {0.1, 3},
     Increment    = 0.1,
-    CurrentValue = 0.5,
+    CurrentValue = SCAN_RATE,
     Flag         = "ScanRate",
     Callback     = function(val) SCAN_RATE = val end,
 })
@@ -334,6 +334,7 @@ Tab:CreateSection("Discord Webhook")
 Tab:CreateInput({
     Name        = "Webhook URL",
     PlaceholderText = "https://discord.com/api/webhooks/...",
+    CurrentValue = WEBHOOK_URL,
     RemoveTextAfterFocusLost = false,
     Flag        = "WebhookURL",
     Callback    = function(val) WEBHOOK_URL = val end,
@@ -369,7 +370,7 @@ MiscTab:CreateSection("Anti-AFK")
 
 MiscTab:CreateToggle({
     Name         = "Anti-AFK",
-    CurrentValue = true,
+    CurrentValue = ANTI_AFK,
     Flag         = "AntiAFK",
     Callback     = function(val) ANTI_AFK = val end,
 })
@@ -528,10 +529,14 @@ FarmTab:CreateButton({
             Rayfield:Notify({Title="Farm", Content="Zone ID unknown.", Duration=2})
             return
         end
-        pcall(function()
+        local ok, err = pcall(function()
             remote:FireServer("Teleport Area", id)
         end)
-        Rayfield:Notify({Title="Farm", Content="Teleporting to "..selectedZone, Duration=2})
+        if ok then
+            Rayfield:Notify({Title="Farm", Content="TP fired -> "..selectedZone.." (id="..id..")", Duration=3})
+        else
+            Rayfield:Notify({Title="Farm", Content="TP error: "..(err or "?"), Duration=5})
+        end
     end,
 })
 
@@ -611,12 +616,13 @@ FarmTab:CreateButton({
 -- Tabs profils
 for i = 1, 3 do
     local pTab = Window:CreateTab("Profile "..i, "star")
+    local prof = profiles[i]
 
     pTab:CreateSection("Profile "..i.." Enchants")
 
     pTab:CreateToggle({
         Name         = "Enable Profile "..i,
-        CurrentValue = i == 1,
+        CurrentValue = prof.active,
         Flag         = "Profile"..i.."Active",
         Callback     = function(val) profiles[i].active = val end,
     })
@@ -628,7 +634,7 @@ for i = 1, 3 do
     pTab:CreateDropdown({
         Name            = "Slot 1",
         Options         = enchantList,
-        CurrentOption   = "Any",
+        CurrentOption   = prof.slots[1],
         MultipleOptions = false,
         Flag            = "Profile"..i.."Slot1",
         Callback        = function(opt) profiles[i].slots[1] = getOpt(opt) end,
@@ -637,7 +643,7 @@ for i = 1, 3 do
     pTab:CreateDropdown({
         Name            = "Slot 2",
         Options         = enchantList,
-        CurrentOption   = "Any",
+        CurrentOption   = prof.slots[2],
         MultipleOptions = false,
         Flag            = "Profile"..i.."Slot2",
         Callback        = function(opt) profiles[i].slots[2] = getOpt(opt) end,
@@ -646,7 +652,7 @@ for i = 1, 3 do
     pTab:CreateDropdown({
         Name            = "Slot 3",
         Options         = enchantList,
-        CurrentOption   = "Any",
+        CurrentOption   = prof.slots[3],
         MultipleOptions = false,
         Flag            = "Profile"..i.."Slot3",
         Callback        = function(opt) profiles[i].slots[3] = getOpt(opt) end,
