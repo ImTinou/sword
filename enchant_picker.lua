@@ -4,9 +4,18 @@ local player       = game:GetService("Players").LocalPlayer
 local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remoteevent
 local TweenService = game:GetService("TweenService")
 
-local SCAN_RATE = 0.5
-local MATCH_ALL = true
-local scanning  = false
+local SCAN_RATE   = 0.5
+local MATCH_ALL   = true
+local scanning    = false
+local WEBHOOK_URL = "" -- colle ton webhook Discord ici
+
+-- Anti-AFK
+local VirtualUser = game:GetService("VirtualUser")
+game:GetService("Players").LocalPlayer.Idled:Connect(function()
+    VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+    task.wait(1)
+    VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+end)
 
 local enchantList = {
     "Any","Fortune","Sharpness","Protection","Haste","Swiftness",
@@ -26,8 +35,9 @@ local function isProtected(sword)
     if not stats then return false end
     local pStats = stats:FindFirstChild(player.Name)
     if not pStats then return false end
-    if pStats:FindFirstChild("Bank") and pStats.Bank:FindFirstChild(sword.Name) then return true end
-    if pStats:FindFirstChild("Ascender") and pStats.Ascender:FindFirstChild(sword.Name) then return true end
+    for _, folder in pairs({"Bank", "Ascender"}) do
+        if pStats:FindFirstChild(folder) and pStats[folder]:FindFirstChild(sword.Name) then return true end
+    end
     return false
 end
 
@@ -105,25 +115,66 @@ end
 
 local totalPicked = 0
 
+local function sendWebhook(enchants)
+    if WEBHOOK_URL == "" then return end
+    pcall(function()
+        request({
+            Url    = WEBHOOK_URL,
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = game:GetService("HttpService"):JSONEncode({
+                username = "Sword Enchant Picker",
+                embeds = {{
+                    title = "Sword sniped!",
+                    description = "**Enchants:** "..table.concat(enchants, " | "),
+                    color = 6559471,
+                    footer = { text = "Sword Factory X" }
+                }}
+            })
+        })
+    end)
+end
+
+local childAddedConn = nil
+
+local function handleSword(sword, lbl)
+    if not scanning then return end
+    if swordMatches(sword) and not isProtected(sword) then
+        flyPickup(sword)
+        totalPicked = totalPicked + 1
+        local enchants = getSwordEnchants(sword)
+        pcall(function() lbl:Set("Sniped! Total: "..totalPicked) end)
+        Rayfield:Notify({Title="Sword Found!", Content=table.concat(enchants,", "), Duration=3})
+        sendWebhook(enchants)
+    end
+end
+
 local function startScan(lbl)
     scanning = true
+
+    -- Scan initial des swords deja presentes
+    task.spawn(function()
+        for _, sword in pairs(workspace.Swords:GetChildren()) do
+            if not scanning then break end
+            handleSword(sword, lbl)
+        end
+    end)
+
+    -- Event-based: reagit instantanement quand une sword apparait
+    if childAddedConn then childAddedConn:Disconnect() end
+    childAddedConn = workspace.Swords.ChildAdded:Connect(function(sword)
+        task.wait(0.05) -- laisse le temps aux enchants de se charger
+        handleSword(sword, lbl)
+    end)
+
+    -- Polling de fallback
     task.spawn(function()
         while scanning do
-            local found = 0
-            for _, sword in pairs(workspace.Swords:GetChildren()) do
-                if not scanning then break end
-                if swordMatches(sword) and not isProtected(sword) then
-                    flyPickup(sword)
-                    found = found + 1
-                    totalPicked = totalPicked + 1
-                end
-            end
-            pcall(function()
-                lbl:Set("Scanning | This scan: "..found.." | Total: "..totalPicked)
-            end)
+            pcall(function() lbl:Set("Scanning | Total: "..totalPicked) end)
             task.wait(SCAN_RATE)
         end
-        pcall(function() lbl:Set("Stopped | Total picked: "..totalPicked) end)
+        if childAddedConn then childAddedConn:Disconnect() end
+        pcall(function() lbl:Set("Stopped | Total: "..totalPicked) end)
     end)
 end
 
@@ -133,7 +184,7 @@ local Window = Rayfield:CreateWindow({
     Name            = "Sword Enchant Picker",
     LoadingTitle    = "Enchant Picker",
     LoadingSubtitle = "Sword Factory X",
-    ConfigurationSaving = { Enabled = false },
+    ConfigurationSaving = { Enabled = true, FolderName = "SwordPicker", FileName = "config" },
     KeySystem       = false,
 })
 
@@ -154,6 +205,15 @@ Tab:CreateSlider({
     Increment    = 0.1,
     CurrentValue = 0.5,
     Callback     = function(val) SCAN_RATE = val end,
+})
+
+Tab:CreateSection("Discord Webhook")
+
+Tab:CreateInput({
+    Name        = "Webhook URL",
+    PlaceholderText = "https://discord.com/api/webhooks/...",
+    RemoveTextAfterFocusLost = false,
+    Callback    = function(val) WEBHOOK_URL = val end,
 })
 
 Tab:CreateSection("Control")
@@ -178,24 +238,6 @@ Tab:CreateButton({
     end,
 })
 
-Tab:CreateButton({
-    Name     = "Debug: scan 1 sword",
-    Callback = function()
-        local swords = workspace.Swords:GetChildren()
-        if #swords == 0 then
-            Rayfield:Notify({Title="Debug", Content="No swords in workspace.Swords", Duration=4})
-            return
-        end
-        local sword = swords[1]
-        local enchants = getSwordEnchants(sword)
-        local matches = swordMatches(sword)
-        Rayfield:Notify({
-            Title   = "Debug sword[1]",
-            Content = "Enchants: "..table.concat(enchants, ", ").." | Match: "..tostring(matches),
-            Duration = 6,
-        })
-    end,
-})
 
 -- Tabs profils
 for i = 1, 3 do
@@ -237,15 +279,4 @@ for i = 1, 3 do
         Callback        = function(opt) profiles[i].slots[3] = getOpt(opt) end,
     })
 
-    pTab:CreateButton({
-        Name     = "Debug: print slots",
-        Callback = function()
-            local s = profiles[i].slots
-            Rayfield:Notify({
-                Title   = "Profile "..i.." slots",
-                Content = s[1].." | "..s[2].." | "..s[3],
-                Duration = 4,
-            })
-        end,
-    })
 end
