@@ -1,7 +1,7 @@
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
-local player  = game:GetService("Players").LocalPlayer
-local remote  = game:GetService("ReplicatedStorage").Paper.Remotes.__remoteevent
+local player       = game:GetService("Players").LocalPlayer
+local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remoteevent
 local TweenService = game:GetService("TweenService")
 
 local SCAN_RATE = 0.5
@@ -14,7 +14,12 @@ local enchantList = {
     "Stealth","Ancient","Desperation","Insight","Thorns","Knockback"
 }
 
-local slots = {"Any","Any","Any"}
+-- 3 profils independants, chacun avec 3 slots
+local profiles = {
+    { active = true,  slots = {"Any","Any","Any"} },
+    { active = false, slots = {"Any","Any","Any"} },
+    { active = false, slots = {"Any","Any","Any"} },
+}
 
 local function getSwordEnchants(sword)
     local ok, children = pcall(function()
@@ -37,12 +42,11 @@ local function countIn(t, v)
     return n
 end
 
-local function swordMatches(sword)
-    local enchants = getSwordEnchants(sword)
-    if #enchants == 0 then return false end
+local function profileMatches(prof, enchants)
+    if not prof.active then return false end
     if MATCH_ALL then
         local needed = {}
-        for _, s in pairs(slots) do
+        for _, s in pairs(prof.slots) do
             if s ~= "Any" then needed[s] = (needed[s] or 0) + 1 end
         end
         for e, c in pairs(needed) do
@@ -50,7 +54,7 @@ local function swordMatches(sword)
         end
         return true
     else
-        for _, s in pairs(slots) do
+        for _, s in pairs(prof.slots) do
             if s == "Any" then return true end
             for _, e in pairs(enchants) do
                 if e == s then return true end
@@ -60,37 +64,38 @@ local function swordMatches(sword)
     end
 end
 
+local function swordMatches(sword)
+    local enchants = getSwordEnchants(sword)
+    if #enchants == 0 then return false end
+    for _, prof in ipairs(profiles) do
+        if profileMatches(prof, enchants) then return true end
+    end
+    return false
+end
+
 local function flyPickup(sword)
     local char = player.Character
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-
     local ok, swordCF = pcall(function() return sword.Main.CFrame end)
     if not ok then return end
-
     local origin = hrp.CFrame
-
-    -- Monte au dessus de la sword
     hrp.CFrame = swordCF * CFrame.new(0, 15, 0)
     task.wait(0.1)
-
-    -- Descend vers la sword
     local tween = TweenService:Create(hrp, TweenInfo.new(0.25, Enum.EasingStyle.Sine), {
         CFrame = swordCF * CFrame.new(0, 2, 0)
     })
     tween:Play()
     tween.Completed:Wait()
-
-    -- Pickup
     remote:FireServer("Set Hotbar", sword.Name, "Hotbar", 1)
     task.wait(0.1)
-
-    -- Retour origine
     hrp.CFrame = origin
 end
 
-local function startScan(statusLabel)
+local totalPicked = 0
+
+local function startScan(lbl)
     scanning = true
     task.spawn(function()
         while scanning do
@@ -100,16 +105,15 @@ local function startScan(statusLabel)
                 if swordMatches(sword) then
                     flyPickup(sword)
                     found = found + 1
+                    totalPicked = totalPicked + 1
                 end
             end
-            if statusLabel and statusLabel.Parent then
-                statusLabel.Text = "Scan done - picked: " .. found
-            end
+            pcall(function()
+                lbl:Set("Scanning | This scan: "..found.." | Total: "..totalPicked)
+            end)
             task.wait(SCAN_RATE)
         end
-        if statusLabel and statusLabel.Parent then
-            statusLabel.Text = "Stopped."
-        end
+        pcall(function() lbl:Set("Stopped | Total picked: "..totalPicked) end)
     end)
 end
 
@@ -123,38 +127,13 @@ local Window = Rayfield:CreateWindow({
     KeySystem       = false,
 })
 
-local Tab = Window:CreateTab("Enchants", "shield")
-
-Tab:CreateSection("Enchant Filters")
-
-Tab:CreateDropdown({
-    Name            = "Slot 1",
-    Options         = enchantList,
-    CurrentOption   = "Any",
-    MultipleOptions = false,
-    Callback        = function(opt) slots[1] = opt end,
-})
-
-Tab:CreateDropdown({
-    Name            = "Slot 2",
-    Options         = enchantList,
-    CurrentOption   = "Any",
-    MultipleOptions = false,
-    Callback        = function(opt) slots[2] = opt end,
-})
-
-Tab:CreateDropdown({
-    Name            = "Slot 3",
-    Options         = enchantList,
-    CurrentOption   = "Any",
-    MultipleOptions = false,
-    Callback        = function(opt) slots[3] = opt end,
-})
+-- Tab principal
+local Tab = Window:CreateTab("Scanner", "shield")
 
 Tab:CreateSection("Options")
 
 Tab:CreateToggle({
-    Name         = "Match all 3 enchants",
+    Name         = "Match all 3 enchants per profile",
     CurrentValue = true,
     Callback     = function(val) MATCH_ALL = val end,
 })
@@ -169,13 +148,13 @@ Tab:CreateSlider({
 
 Tab:CreateSection("Control")
 
-local statusElement = Tab:CreateLabel("Status: Ready")
+local statusLbl = Tab:CreateLabel("Status: Ready")
 
 Tab:CreateButton({
     Name     = "Start Auto-Pickup",
     Callback = function()
         if not scanning then
-            startScan(statusElement)
+            startScan(statusLbl)
             Rayfield:Notify({Title="Enchant Picker", Content="Scan started!", Duration=2})
         end
     end,
@@ -185,6 +164,43 @@ Tab:CreateButton({
     Name     = "Stop Auto-Pickup",
     Callback = function()
         scanning = false
-        Rayfield:Notify({Title="Enchant Picker", Content="Scan stopped.", Duration=2})
+        Rayfield:Notify({Title="Enchant Picker", Content="Stopped.", Duration=2})
     end,
 })
+
+-- Tabs profils
+for i = 1, 3 do
+    local pTab = Window:CreateTab("Profile "..i, "star")
+
+    pTab:CreateSection("Profile "..i.." Enchants")
+
+    pTab:CreateToggle({
+        Name         = "Enable Profile "..i,
+        CurrentValue = i == 1,
+        Callback     = function(val) profiles[i].active = val end,
+    })
+
+    pTab:CreateDropdown({
+        Name            = "Slot 1",
+        Options         = enchantList,
+        CurrentOption   = "Any",
+        MultipleOptions = false,
+        Callback        = function(opt) profiles[i].slots[1] = opt end,
+    })
+
+    pTab:CreateDropdown({
+        Name            = "Slot 2",
+        Options         = enchantList,
+        CurrentOption   = "Any",
+        MultipleOptions = false,
+        Callback        = function(opt) profiles[i].slots[2] = opt end,
+    })
+
+    pTab:CreateDropdown({
+        Name            = "Slot 3",
+        Options         = enchantList,
+        CurrentOption   = "Any",
+        MultipleOptions = false,
+        Callback        = function(opt) profiles[i].slots[3] = opt end,
+    })
+end
