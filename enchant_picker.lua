@@ -41,14 +41,6 @@ local function isProtected(sword)
     return false
 end
 
-local function isBeingSold(sword)
-    local stats = game:GetService("ReplicatedStorage"):FindFirstChild("Stats")
-    if not stats then return false end
-    local pStats = stats:FindFirstChild(player.Name)
-    if not pStats then return false end
-    local selling = pStats:FindFirstChild("Selling")
-    return selling and selling:FindFirstChild(sword.Name) ~= nil
-end
 
 local function getSwordEnchants(sword)
     local ok, children = pcall(function()
@@ -124,20 +116,58 @@ end
 
 local totalPicked = 0
 
-local function sendWebhook(enchants)
+local function getSwordInfo(sword)
+    local info = {}
+    pcall(function()
+        local gui = sword.Main.Gui.ItemInfo
+        info.name     = gui:FindFirstChild("Class")    and gui.Class.Text    or "Unknown"
+        info.level    = gui:FindFirstChild("Level")    and gui.Level.Text    or "?"
+        info.rarity   = gui:FindFirstChild("RarityQuality") and gui.RarityQuality.Text or "?"
+        info.worth    = gui:FindFirstChild("Worth")    and gui.Worth.Text    or "?"
+        info.selling  = gui:FindFirstChild("Selling")  and gui.Selling.Text  or "?"
+    end)
+    return info
+end
+
+local rarityColors = {
+    Common=9807270, Uncommon=5763719, Rare=3447003,
+    Epic=10181046, Legendary=16766720, Mythical=15158332,
+    Unique=1752220, Godly=16711680, Celestial=16777215,
+}
+
+local function sendWebhook(sword, enchants)
     if WEBHOOK_URL == "" then return end
     pcall(function()
+        local info  = getSwordInfo(sword)
+        local color = 6559471
+        for rarity, col in pairs(rarityColors) do
+            if info.rarity and info.rarity:find(rarity) then color = col break end
+        end
+
+        local fields = {}
+        for idx, e in ipairs(enchants) do
+            table.insert(fields, { name = "Enchant "..idx, value = e, inline = true })
+        end
+        table.insert(fields, { name = "Level",   value = info.level   or "?", inline = true })
+        table.insert(fields, { name = "Rarity",  value = info.rarity  or "?", inline = true })
+        table.insert(fields, { name = "Worth",   value = info.worth   or "?", inline = true })
+        table.insert(fields, { name = "Price",   value = info.selling or "?", inline = true })
+        table.insert(fields, { name = "Server",  value = tostring(#game:GetService("Players"):GetPlayers()).." players", inline = true })
+
         request({
             Url    = WEBHOOK_URL,
             Method = "POST",
             Headers = { ["Content-Type"] = "application/json" },
             Body = game:GetService("HttpService"):JSONEncode({
-                username = "Sword Enchant Picker",
+                username   = "TinouHUB",
+                avatar_url = "https://tr.rbxcdn.com/180DAY-placeholder/150/150/AvatarHeadshot/Webp/noFilter",
                 embeds = {{
-                    title = "Sword sniped!",
-                    description = "**Enchants:** "..table.concat(enchants, " | "),
-                    color = 6559471,
-                    footer = { text = "Sword Factory X" }
+                    title       = "Sword Sniped — "..(info.name or "Unknown"),
+                    description = "**"..player.Name.."** picked up a matching sword!",
+                    color       = color,
+                    fields      = fields,
+                    footer      = { text = "TinouHub | Sword Factory X" },
+                    timestamp   = os.date("!%Y-%m-%dT%H:%M:%SZ"),
                 }}
             })
         })
@@ -148,13 +178,13 @@ local childAddedConn = nil
 
 local function handleSword(sword, lbl)
     if not scanning then return end
-    if isBeingSold(sword) and not isProtected(sword) and swordMatches(sword) then
+    if not isProtected(sword) and swordMatches(sword) then
         flyPickup(sword)
         totalPicked = totalPicked + 1
         local enchants = getSwordEnchants(sword)
         pcall(function() lbl:Set("Sniped! Total: "..totalPicked) end)
         Rayfield:Notify({Title="Sword Found!", Content=table.concat(enchants,", "), Duration=3})
-        sendWebhook(enchants)
+        sendWebhook(sword, enchants)
     end
 end
 
