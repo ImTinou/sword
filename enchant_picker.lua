@@ -4,7 +4,7 @@ local player       = game:GetService("Players").LocalPlayer
 local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remoteevent
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "0.06"
+local VERSION     = "0.05"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
@@ -317,7 +317,16 @@ local Window = Rayfield:CreateWindow({
     LoadingTitle    = "TinouHub v"..VERSION,
     LoadingSubtitle = "Sword Factory X",
     ConfigurationSaving = { Enabled = false },
-    KeySystem       = false,
+    KeySystem       = true,
+    KeySettings     = {
+        Title    = "TinouHub",
+        Subtitle = "Key System",
+        Note     = "Demande ta cle a ImTinou",
+        FileName = "TinouHubKey",
+        SaveKey  = true,
+        GrabKeyFromSite = false,
+        Key      = {"tinoukey1", "tinoukey2", "tinoukey3"},
+    },
 })
 
 -- Tab principal
