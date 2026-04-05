@@ -134,6 +134,11 @@ local function getEnchantName(text)
     return text:match("^(%a+)") or text
 end
 
+local function stripRichText(text)
+    if not text then return "?" end
+    return (text:gsub("<[^>]+>", ""):gsub("^%s*(.-)%s*$", "%1"))
+end
+
 local function countIn(t, v)
     local n = 0
     for _, x in pairs(t) do if x == v then n = n + 1 end end
@@ -199,11 +204,11 @@ local function getSwordInfo(sword)
     local info = {}
     pcall(function()
         local gui = sword.Main.Gui.ItemInfo
-        info.name     = gui:FindFirstChild("Class")    and gui.Class.Text    or "Unknown"
-        info.level    = gui:FindFirstChild("Level")    and gui.Level.Text    or "?"
-        info.rarity   = gui:FindFirstChild("RarityQuality") and gui.RarityQuality.Text or "?"
-        info.worth    = gui:FindFirstChild("Worth")    and gui.Worth.Text    or "?"
-        info.selling  = gui:FindFirstChild("Selling")  and gui.Selling.Text  or "?"
+        info.name    = gui:FindFirstChild("Class")         and stripRichText(gui.Class.Text)         or "Unknown"
+        info.level   = gui:FindFirstChild("Level")         and stripRichText(gui.Level.Text)         or "?"
+        info.rarity  = gui:FindFirstChild("RarityQuality") and stripRichText(gui.RarityQuality.Text) or "?"
+        info.worth   = gui:FindFirstChild("Worth")         and stripRichText(gui.Worth.Text)         or "?"
+        info.selling = gui:FindFirstChild("Selling")       and stripRichText(gui.Selling.Text)       or "?"
     end)
     return info
 end
