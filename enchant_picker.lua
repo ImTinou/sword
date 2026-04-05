@@ -41,6 +41,15 @@ local function isProtected(sword)
     return false
 end
 
+local function isBeingSold(sword)
+    local stats = game:GetService("ReplicatedStorage"):FindFirstChild("Stats")
+    if not stats then return false end
+    local pStats = stats:FindFirstChild(player.Name)
+    if not pStats then return false end
+    local selling = pStats:FindFirstChild("Selling")
+    return selling and selling:FindFirstChild(sword.Name) ~= nil
+end
+
 local function getSwordEnchants(sword)
     local ok, children = pcall(function()
         return sword.Main.Gui.ItemInfo.Enchants:GetChildren()
@@ -139,7 +148,7 @@ local childAddedConn = nil
 
 local function handleSword(sword, lbl)
     if not scanning then return end
-    if swordMatches(sword) and not isProtected(sword) then
+    if isBeingSold(sword) and not isProtected(sword) and swordMatches(sword) then
         flyPickup(sword)
         totalPicked = totalPicked + 1
         local enchants = getSwordEnchants(sword)
