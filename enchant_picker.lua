@@ -288,7 +288,14 @@ local function startScan(lbl)
     -- Event-based: reagit instantanement quand une sword apparait
     if childAddedConn then childAddedConn:Disconnect() end
     childAddedConn = workspace.Swords.ChildAdded:Connect(function(sword)
-        task.wait(0.05) -- laisse le temps aux enchants de se charger
+        -- Attendre que les enchants soient charges (retry max 2s)
+        local tries = 0
+        while tries < 20 do
+            task.wait(0.1)
+            tries = tries + 1
+            if not sword.Parent then return end  -- sword disparue entre temps
+            if #getSwordEnchants(sword) > 0 then break end
+        end
         handleSword(sword, lbl)
     end)
 
