@@ -21,6 +21,16 @@ local profiles = {
     { active = false, slots = {"Any","Any","Any"} },
 }
 
+local function isProtected(sword)
+    local stats = game:GetService("ReplicatedStorage"):FindFirstChild("Stats")
+    if not stats then return false end
+    local pStats = stats:FindFirstChild(player.Name)
+    if not pStats then return false end
+    if pStats:FindFirstChild("Bank") and pStats.Bank:FindFirstChild(sword.Name) then return true end
+    if pStats:FindFirstChild("Ascender") and pStats.Ascender:FindFirstChild(sword.Name) then return true end
+    return false
+end
+
 local function getSwordEnchants(sword)
     local ok, children = pcall(function()
         return sword.Main.Gui.ItemInfo.Enchants:GetChildren()
@@ -102,7 +112,7 @@ local function startScan(lbl)
             local found = 0
             for _, sword in pairs(workspace.Swords:GetChildren()) do
                 if not scanning then break end
-                if swordMatches(sword) then
+                if swordMatches(sword) and not isProtected(sword) then
                     flyPickup(sword)
                     found = found + 1
                     totalPicked = totalPicked + 1
@@ -165,6 +175,25 @@ Tab:CreateButton({
     Callback = function()
         scanning = false
         Rayfield:Notify({Title="Enchant Picker", Content="Stopped.", Duration=2})
+    end,
+})
+
+Tab:CreateButton({
+    Name     = "Debug: scan 1 sword",
+    Callback = function()
+        local swords = workspace.Swords:GetChildren()
+        if #swords == 0 then
+            Rayfield:Notify({Title="Debug", Content="No swords in workspace.Swords", Duration=4})
+            return
+        end
+        local sword = swords[1]
+        local enchants = getSwordEnchants(sword)
+        local matches = swordMatches(sword)
+        Rayfield:Notify({
+            Title   = "Debug sword[1]",
+            Content = "Enchants: "..table.concat(enchants, ", ").." | Match: "..tostring(matches),
+            Duration = 6,
+        })
     end,
 })
 
