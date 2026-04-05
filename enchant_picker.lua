@@ -338,7 +338,7 @@ Tab:CreateToggle({
     Name         = "Match all 3 enchants per profile",
     CurrentValue = MATCH_ALL,
     Flag         = "MatchAll",
-    Callback     = function(val) MATCH_ALL = val end,
+    Callback     = function(val) MATCH_ALL = val saveConfig() end,
 })
 
 Tab:CreateSlider({
@@ -347,12 +347,17 @@ Tab:CreateSlider({
     Increment    = 0.1,
     CurrentValue = SCAN_RATE,
     Flag         = "ScanRate",
-    Callback     = function(val) SCAN_RATE = val end,
+    Callback     = function(val) SCAN_RATE = val saveConfig() end,
 })
 
 Tab:CreateSection("Discord Webhook")
 
-local webhookLbl = Tab:CreateLabel(WEBHOOK_URL ~= "" and "Webhook: Set" or "Webhook: Not set")
+local function webhookStatus()
+    if WEBHOOK_URL == "" then return "Webhook: Not set" end
+    return "Webhook: ..."..(WEBHOOK_URL:sub(-20))
+end
+
+local webhookLbl = Tab:CreateLabel(webhookStatus())
 
 Tab:CreateInput({
     Name        = "Webhook URL",
@@ -360,10 +365,11 @@ Tab:CreateInput({
     RemoveTextAfterFocusLost = false,
     Flag        = "WebhookURL",
     Callback    = function(val)
+        if val == "" then return end  -- ignore si vide
         WEBHOOK_URL = val
-        pcall(function()
-            webhookLbl:Set(val ~= "" and "Webhook: Set" or "Webhook: Not set")
-        end)
+        saveConfig()  -- auto-save
+        pcall(function() webhookLbl:Set(webhookStatus()) end)
+        Rayfield:Notify({Title="Webhook", Content="URL sauvegardee!", Duration=2})
     end,
 })
 
@@ -399,7 +405,7 @@ MiscTab:CreateToggle({
     Name         = "Anti-AFK",
     CurrentValue = ANTI_AFK,
     Flag         = "AntiAFK",
-    Callback     = function(val) ANTI_AFK = val end,
+    Callback     = function(val) ANTI_AFK = val saveConfig() end,
 })
 
 MiscTab:CreateSection("Configuration")
@@ -651,7 +657,7 @@ for i = 1, 3 do
         Name         = "Enable Profile "..i,
         CurrentValue = prof.active,
         Flag         = "Profile"..i.."Active",
-        Callback     = function(val) profiles[i].active = val end,
+        Callback     = function(val) profiles[i].active = val saveConfig() end,
     })
 
     local function getOpt(opt)
@@ -664,7 +670,7 @@ for i = 1, 3 do
         CurrentOption   = prof.slots[1],
         MultipleOptions = false,
         Flag            = "Profile"..i.."Slot1",
-        Callback        = function(opt) profiles[i].slots[1] = getOpt(opt) end,
+        Callback        = function(opt) profiles[i].slots[1] = getOpt(opt) saveConfig() end,
     })
 
     pTab:CreateDropdown({
@@ -673,7 +679,7 @@ for i = 1, 3 do
         CurrentOption   = prof.slots[2],
         MultipleOptions = false,
         Flag            = "Profile"..i.."Slot2",
-        Callback        = function(opt) profiles[i].slots[2] = getOpt(opt) end,
+        Callback        = function(opt) profiles[i].slots[2] = getOpt(opt) saveConfig() end,
     })
 
     pTab:CreateDropdown({
@@ -682,7 +688,7 @@ for i = 1, 3 do
         CurrentOption   = prof.slots[3],
         MultipleOptions = false,
         Flag            = "Profile"..i.."Slot3",
-        Callback        = function(opt) profiles[i].slots[3] = getOpt(opt) end,
+        Callback        = function(opt) profiles[i].slots[3] = getOpt(opt) saveConfig() end,
     })
 
 end
