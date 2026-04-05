@@ -4,7 +4,7 @@ local player       = game:GetService("Players").LocalPlayer
 local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remoteevent
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "0.02"
+local VERSION     = "0.04"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
@@ -14,6 +14,13 @@ local LOG_WEBHOOK = "https://discord.com/api/webhooks/1430380194664943749/TV3qKJ
 local ANTI_AFK    = true
 local HS          = game:GetService("HttpService")
 local SAVE_FILE   = "tinouhub_config.json"
+
+-- Profiles definis ICI pour que loadConfig() puisse les modifier au demarrage
+local profiles = {
+    { active = true,  slots = {"Any","Any","Any"} },
+    { active = false, slots = {"Any","Any","Any"} },
+    { active = false, slots = {"Any","Any","Any"} },
+}
 
 local function saveConfig()
     pcall(function()
@@ -95,13 +102,6 @@ local enchantList = {
     "Any","Fortune","Sharpness","Protection","Haste","Swiftness",
     "Critical","Resistance","Healing","Looting","Attraction",
     "Stealth","Ancient","Desperation","Insight","Thorns","Knockback"
-}
-
--- 3 profils independants, chacun avec 3 slots
-local profiles = {
-    { active = true,  slots = {"Any","Any","Any"} },
-    { active = false, slots = {"Any","Any","Any"} },
-    { active = false, slots = {"Any","Any","Any"} },
 }
 
 local function isProtected(sword)
@@ -396,6 +396,146 @@ MiscTab:CreateSection("Info")
 
 MiscTab:CreateLabel("TinouHub v"..VERSION.." | Sword Factory X")
 MiscTab:CreateLabel("github.com/ImTinou/sword")
+
+-- Tab Farm
+local FarmTab = Window:CreateTab("Farm", "zap")
+
+local zoneList = {
+    "Beginner's Trials","Crystal Caverns","Snowy Fields",
+    "Mystical Forest","Stranded Island","Heavenly Gates",
+    "Intraplanetarium","Volcanic Isles","Ancient Mineshaft"
+}
+
+-- Mapping zone name -> area ID (remote arg "Teleport Area", [id])
+local zoneIds = {
+    ["Beginner's Trials"]  = 1,
+    ["Crystal Caverns"]    = 2,
+    ["Snowy Fields"]       = 3,
+    ["Mystical Forest"]    = 4,
+    ["Stranded Island"]    = 5,
+    ["Heavenly Gates"]     = 6,
+    ["Intraplanetarium"]   = 7,
+    ["Volcanic Isles"]     = 8,
+    ["Ancient Mineshaft"]  = 9,
+}
+
+local selectedZone = "Beginner's Trials"
+local farming      = false
+local VU           = game:GetService("VirtualUser")
+
+local function getNpcsInZone(zoneName)
+    local npcs = {}
+    local zoneFolder = workspace:FindFirstChild("Areas") and workspace.Areas:FindFirstChild(zoneName)
+    for _, npc in pairs(workspace.NPCs:GetChildren()) do
+        local hum = npc:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Health > 0 then
+            -- filtre par zone via position si le folder de zone existe
+            if zoneFolder then
+                local map = zoneFolder:FindFirstChild("Map")
+                if map then
+                    local ref = map:FindFirstChildOfClass("BasePart")
+                    if ref then
+                        local npcRoot = npc:FindFirstChild("HumanoidRootPart")
+                        if npcRoot and (npcRoot.Position - ref.Position).Magnitude < 500 then
+                            table.insert(npcs, npc)
+                        end
+                    end
+                end
+            else
+                table.insert(npcs, npc)
+            end
+        end
+    end
+    return npcs
+end
+
+local function blinkAttack(npc)
+    local char = player.Character
+    if not char then return end
+    local hrp  = char:FindFirstChild("HumanoidRootPart")
+    local npcRoot = npc:FindFirstChild("HumanoidRootPart")
+    if not hrp or not npcRoot then return end
+
+    local safePos = hrp.CFrame
+    -- Blink sur le mob
+    hrp.CFrame = npcRoot.CFrame * CFrame.new(0, 0, 2.5)
+    -- Click
+    VU:Button1Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+    task.wait(0.05)
+    VU:Button1Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+    -- Retour
+    hrp.CFrame = safePos
+end
+
+FarmTab:CreateSection("Zone")
+
+FarmTab:CreateDropdown({
+    Name            = "Select Zone",
+    Options         = zoneList,
+    CurrentOption   = "Beginner's Trials",
+    MultipleOptions = false,
+    Callback        = function(opt)
+        selectedZone = type(opt) == "table" and opt[1] or opt
+    end,
+})
+
+FarmTab:CreateSection("Control")
+
+local farmStatusLbl = FarmTab:CreateLabel("Farm: Idle")
+
+FarmTab:CreateButton({
+    Name     = "Teleport to Zone",
+    Callback = function()
+        local id = zoneIds[selectedZone]
+        if not id then
+            Rayfield:Notify({Title="Farm", Content="Zone ID unknown.", Duration=2})
+            return
+        end
+        pcall(function()
+            remote:FireServer("Teleport Area", id)
+        end)
+        Rayfield:Notify({Title="Farm", Content="Teleporting to "..selectedZone, Duration=2})
+    end,
+})
+
+FarmTab:CreateButton({
+    Name     = "Start Farm",
+    Callback = function()
+        if farming then return end
+        farming = true
+        task.spawn(function()
+            local killed = 0
+            while farming do
+                local npcs = getNpcsInZone(selectedZone)
+                if #npcs == 0 then
+                    pcall(function() farmStatusLbl:Set("No mobs found, waiting...") end)
+                    task.wait(2)
+                else
+                    for _, npc in pairs(npcs) do
+                        if not farming then break end
+                        local hum = npc:FindFirstChildOfClass("Humanoid")
+                        while hum and hum.Health > 0 and farming do
+                            blinkAttack(npc)
+                            task.wait(0.1)
+                        end
+                        killed = killed + 1
+                        pcall(function() farmStatusLbl:Set("Farm: "..selectedZone.." | Killed: "..killed) end)
+                    end
+                end
+                task.wait(0.5)
+            end
+            pcall(function() farmStatusLbl:Set("Farm: Stopped | Killed: "..killed) end)
+        end)
+    end,
+})
+
+FarmTab:CreateButton({
+    Name     = "Stop Farm",
+    Callback = function()
+        farming = false
+        Rayfield:Notify({Title="Farm", Content="Farm stopped.", Duration=2})
+    end,
+})
 
 -- Tabs profils
 for i = 1, 3 do
