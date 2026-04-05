@@ -4,7 +4,7 @@ local player       = game:GetService("Players").LocalPlayer
 local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remoteevent
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "1.0.0"
+local VERSION     = "0.01"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
@@ -12,10 +12,20 @@ local WEBHOOK_URL = ""
 
 -- Anti-AFK
 local VirtualUser = game:GetService("VirtualUser")
-game:GetService("Players").LocalPlayer.Idled:Connect(function()
+player.Idled:Connect(function()
     VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
     task.wait(1)
     VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+end)
+task.spawn(function()
+    while true do
+        task.wait(60)
+        local char = player.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then hum.Jump = true end
+        end
+    end
 end)
 
 local enchantList = {
@@ -236,6 +246,7 @@ Tab:CreateSection("Options")
 Tab:CreateToggle({
     Name         = "Match all 3 enchants per profile",
     CurrentValue = true,
+    Flag         = "MatchAll",
     Callback     = function(val) MATCH_ALL = val end,
 })
 
@@ -244,6 +255,7 @@ Tab:CreateSlider({
     Range        = {0.1, 3},
     Increment    = 0.1,
     CurrentValue = 0.5,
+    Flag         = "ScanRate",
     Callback     = function(val) SCAN_RATE = val end,
 })
 
@@ -253,6 +265,7 @@ Tab:CreateInput({
     Name        = "Webhook URL",
     PlaceholderText = "https://discord.com/api/webhooks/...",
     RemoveTextAfterFocusLost = false,
+    Flag        = "WebhookURL",
     Callback    = function(val) WEBHOOK_URL = val end,
 })
 
@@ -288,6 +301,7 @@ for i = 1, 3 do
     pTab:CreateToggle({
         Name         = "Enable Profile "..i,
         CurrentValue = i == 1,
+        Flag         = "Profile"..i.."Active",
         Callback     = function(val) profiles[i].active = val end,
     })
 
@@ -300,6 +314,7 @@ for i = 1, 3 do
         Options         = enchantList,
         CurrentOption   = "Any",
         MultipleOptions = false,
+        Flag            = "Profile"..i.."Slot1",
         Callback        = function(opt) profiles[i].slots[1] = getOpt(opt) end,
     })
 
@@ -308,6 +323,7 @@ for i = 1, 3 do
         Options         = enchantList,
         CurrentOption   = "Any",
         MultipleOptions = false,
+        Flag            = "Profile"..i.."Slot2",
         Callback        = function(opt) profiles[i].slots[2] = getOpt(opt) end,
     })
 
@@ -316,6 +332,7 @@ for i = 1, 3 do
         Options         = enchantList,
         CurrentOption   = "Any",
         MultipleOptions = false,
+        Flag            = "Profile"..i.."Slot3",
         Callback        = function(opt) profiles[i].slots[3] = getOpt(opt) end,
     })
 
