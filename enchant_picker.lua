@@ -4,7 +4,7 @@ local player       = game:GetService("Players").LocalPlayer
 local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remoteevent
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "0.04"
+local VERSION     = "0.03"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
@@ -304,7 +304,7 @@ local Window = Rayfield:CreateWindow({
     Name            = "TinouHub | Sword Factory X",
     LoadingTitle    = "TinouHub v"..VERSION,
     LoadingSubtitle = "Sword Factory X",
-    ConfigurationSaving = { Enabled = true, FolderName = "SwordPicker", FileName = "config" },
+    ConfigurationSaving = { Enabled = false },
     KeySystem       = false,
 })
 
@@ -315,7 +315,7 @@ Tab:CreateSection("Options")
 
 Tab:CreateToggle({
     Name         = "Match all 3 enchants per profile",
-    CurrentValue = true,
+    CurrentValue = MATCH_ALL,
     Flag         = "MatchAll",
     Callback     = function(val) MATCH_ALL = val end,
 })
@@ -324,7 +324,7 @@ Tab:CreateSlider({
     Name         = "Scan Rate (s)",
     Range        = {0.1, 3},
     Increment    = 0.1,
-    CurrentValue = 0.5,
+    CurrentValue = SCAN_RATE,
     Flag         = "ScanRate",
     Callback     = function(val) SCAN_RATE = val end,
 })
@@ -334,6 +334,7 @@ Tab:CreateSection("Discord Webhook")
 Tab:CreateInput({
     Name        = "Webhook URL",
     PlaceholderText = "https://discord.com/api/webhooks/...",
+    CurrentValue = WEBHOOK_URL,
     RemoveTextAfterFocusLost = false,
     Flag        = "WebhookURL",
     Callback    = function(val) WEBHOOK_URL = val end,
@@ -369,7 +370,7 @@ MiscTab:CreateSection("Anti-AFK")
 
 MiscTab:CreateToggle({
     Name         = "Anti-AFK",
-    CurrentValue = true,
+    CurrentValue = ANTI_AFK,
     Flag         = "AntiAFK",
     Callback     = function(val) ANTI_AFK = val end,
 })
@@ -419,9 +420,38 @@ local zoneIds = {
     ["Ancient Mineshaft"]  = 9,
 }
 
-local selectedZone = "Beginner's Trials"
-local farming      = false
-local VU           = game:GetService("VirtualUser")
+local selectedZone    = "Beginner's Trials"
+local farming         = false
+local MIN_HP_PCT      = 0.35   -- retraite si HP < 35%
+local farmSafePos     = nil    -- sauvegarde quand on demarre le farm
+local VU              = game:GetService("VirtualUser")
+
+local function getHpPct()
+    local char = player.Character
+    if not char then return 0 end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.MaxHealth == 0 then return 1 end
+    return hum.Health / hum.MaxHealth
+end
+
+local function retreatAndHeal(lbl)
+    -- Stop le click au cas ou
+    pcall(function() VU:Button1Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame) end)
+    -- Teleport au safe spot
+    local char = player.Character
+    if char and farmSafePos then
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then hrp.CFrame = farmSafePos end
+    end
+    -- Attendre regen (>80% HP)
+    local t = 0
+    while getHpPct() < 0.8 and farming do
+        t = t + 0.5
+        pcall(function() lbl:Set("Low HP! Healing... ("..math.floor(getHpPct()*100).."%)") end)
+        task.wait(0.5)
+        if t > 30 then break end  -- max 30s d'attente
+    end
+end
 
 local function getNpcsInZone(zoneName)
     local npcs = {}
@@ -429,7 +459,6 @@ local function getNpcsInZone(zoneName)
     for _, npc in pairs(workspace.NPCs:GetChildren()) do
         local hum = npc:FindFirstChildOfClass("Humanoid")
         if hum and hum.Health > 0 then
-            -- filtre par zone via position si le folder de zone existe
             if zoneFolder then
                 local map = zoneFolder:FindFirstChild("Map")
                 if map then
@@ -449,22 +478,20 @@ local function getNpcsInZone(zoneName)
     return npcs
 end
 
-local function blinkAttack(npc)
+local function attackNpc(npc)
     local char = player.Character
     if not char then return end
-    local hrp  = char:FindFirstChild("HumanoidRootPart")
+    local hrp     = char:FindFirstChild("HumanoidRootPart")
     local npcRoot = npc:FindFirstChild("HumanoidRootPart")
     if not hrp or not npcRoot then return end
-
-    local safePos = hrp.CFrame
-    -- Blink sur le mob
-    hrp.CFrame = npcRoot.CFrame * CFrame.new(0, 0, 2.5)
-    -- Click
+    -- Blink sur le mob a 3 studs
+    hrp.CFrame = npcRoot.CFrame * CFrame.new(0, 0, 3)
+    -- Maintien du clic pour taper
     VU:Button1Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
-    task.wait(0.05)
+    task.wait(0.3)
     VU:Button1Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
-    -- Retour
-    hrp.CFrame = safePos
+    -- Retour au safe spot
+    if farmSafePos then hrp.CFrame = farmSafePos end
 end
 
 FarmTab:CreateSection("Zone")
@@ -479,6 +506,17 @@ FarmTab:CreateDropdown({
     end,
 })
 
+FarmTab:CreateSection("Options")
+
+FarmTab:CreateSlider({
+    Name         = "Min HP before retreat (%)",
+    Range        = {10, 80},
+    Increment    = 5,
+    CurrentValue = 35,
+    Flag         = "FarmMinHp",
+    Callback     = function(val) MIN_HP_PCT = val / 100 end,
+})
+
 FarmTab:CreateSection("Control")
 
 local farmStatusLbl = FarmTab:CreateLabel("Farm: Idle")
@@ -491,10 +529,14 @@ FarmTab:CreateButton({
             Rayfield:Notify({Title="Farm", Content="Zone ID unknown.", Duration=2})
             return
         end
-        pcall(function()
+        local ok, err = pcall(function()
             remote:FireServer("Teleport Area", id)
         end)
-        Rayfield:Notify({Title="Farm", Content="Teleporting to "..selectedZone, Duration=2})
+        if ok then
+            Rayfield:Notify({Title="Farm", Content="TP fired -> "..selectedZone.." (id="..id..")", Duration=3})
+        else
+            Rayfield:Notify({Title="Farm", Content="TP error: "..(err or "?"), Duration=5})
+        end
     end,
 })
 
@@ -503,28 +545,62 @@ FarmTab:CreateButton({
     Callback = function()
         if farming then return end
         farming = true
+        -- Sauvegarder position de depart comme safe spot
+        local char = player.Character
+        if char then
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hrp then farmSafePos = hrp.CFrame end
+        end
+        -- Gestion mort: si le perso meurt, stop le farm
+        local deathConn
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                deathConn = hum.Died:Connect(function()
+                    farming = false
+                    pcall(function() farmStatusLbl:Set("Farm: Stopped (death)") end)
+                    Rayfield:Notify({Title="Farm", Content="Mort! Farm arrete.", Duration=4})
+                end)
+            end
+        end
         task.spawn(function()
             local killed = 0
             while farming do
+                -- Verifier HP en debut de loop
+                if getHpPct() < MIN_HP_PCT then
+                    retreatAndHeal(farmStatusLbl)
+                end
+                if not farming then break end
+
                 local npcs = getNpcsInZone(selectedZone)
                 if #npcs == 0 then
-                    pcall(function() farmStatusLbl:Set("No mobs found, waiting...") end)
+                    pcall(function() farmStatusLbl:Set("No mobs found...") end)
                     task.wait(2)
                 else
-                    for _, npc in pairs(npcs) do
+                    for _, npc in ipairs(npcs) do
                         if not farming then break end
                         local hum = npc:FindFirstChildOfClass("Humanoid")
                         while hum and hum.Health > 0 and farming do
-                            blinkAttack(npc)
-                            task.wait(0.1)
+                            -- Retreat si HP trop bas pendant le combat
+                            if getHpPct() < MIN_HP_PCT then
+                                retreatAndHeal(farmStatusLbl)
+                                if not farming then break end
+                            end
+                            attackNpc(npc)
+                            task.wait(0.15)
                         end
-                        killed = killed + 1
-                        pcall(function() farmStatusLbl:Set("Farm: "..selectedZone.." | Killed: "..killed) end)
+                        if hum and hum.Health <= 0 then
+                            killed = killed + 1
+                            pcall(function()
+                                farmStatusLbl:Set("Zone: "..selectedZone.." | Kills: "..killed.." | HP: "..math.floor(getHpPct()*100).."%")
+                            end)
+                        end
                     end
                 end
-                task.wait(0.5)
+                task.wait(0.3)
             end
-            pcall(function() farmStatusLbl:Set("Farm: Stopped | Killed: "..killed) end)
+            pcall(function() farmStatusLbl:Set("Farm: Stopped | Kills: "..killed) end)
+            if deathConn then deathConn:Disconnect() end
         end)
     end,
 })
@@ -540,12 +616,13 @@ FarmTab:CreateButton({
 -- Tabs profils
 for i = 1, 3 do
     local pTab = Window:CreateTab("Profile "..i, "star")
+    local prof = profiles[i]
 
     pTab:CreateSection("Profile "..i.." Enchants")
 
     pTab:CreateToggle({
         Name         = "Enable Profile "..i,
-        CurrentValue = i == 1,
+        CurrentValue = prof.active,
         Flag         = "Profile"..i.."Active",
         Callback     = function(val) profiles[i].active = val end,
     })
@@ -557,7 +634,7 @@ for i = 1, 3 do
     pTab:CreateDropdown({
         Name            = "Slot 1",
         Options         = enchantList,
-        CurrentOption   = "Any",
+        CurrentOption   = prof.slots[1],
         MultipleOptions = false,
         Flag            = "Profile"..i.."Slot1",
         Callback        = function(opt) profiles[i].slots[1] = getOpt(opt) end,
@@ -566,7 +643,7 @@ for i = 1, 3 do
     pTab:CreateDropdown({
         Name            = "Slot 2",
         Options         = enchantList,
-        CurrentOption   = "Any",
+        CurrentOption   = prof.slots[2],
         MultipleOptions = false,
         Flag            = "Profile"..i.."Slot2",
         Callback        = function(opt) profiles[i].slots[2] = getOpt(opt) end,
@@ -575,7 +652,7 @@ for i = 1, 3 do
     pTab:CreateDropdown({
         Name            = "Slot 3",
         Options         = enchantList,
-        CurrentOption   = "Any",
+        CurrentOption   = prof.slots[3],
         MultipleOptions = false,
         Flag            = "Profile"..i.."Slot3",
         Callback        = function(opt) profiles[i].slots[3] = getOpt(opt) end,
