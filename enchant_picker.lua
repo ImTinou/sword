@@ -259,11 +259,14 @@ local function sendWebhook(sword, enchants, info)
 end
 
 local childAddedConn = nil
+local processingSwords = {}  -- guard anti-double-pickup
 
 local function handleSword(sword, lbl)
     if not scanning then return end
+    local swordName = sword.Name
+    if processingSwords[swordName] then return end
     if not isProtected(sword) and swordMatches(sword) then
-        -- Lire les donnees AVANT le pickup
+        processingSwords[swordName] = true
         local enchants = getSwordEnchants(sword)
         local info     = getSwordInfo(sword)
         flyPickup(sword)
@@ -271,39 +274,31 @@ local function handleSword(sword, lbl)
         pcall(function() lbl:Set("Sniped! Total: "..totalPicked) end)
         Rayfield:Notify({Title="Sword Found!", Content=table.concat(enchants,", "), Duration=3})
         sendWebhook(sword, enchants, info)
+        task.delay(5, function() processingSwords[swordName] = nil end)
     end
 end
 
 local function startScan(lbl)
     scanning = true
 
-    -- Scan initial des swords deja presentes
-    task.spawn(function()
-        for _, sword in pairs(workspace.Swords:GetChildren()) do
-            if not scanning then break end
-            handleSword(sword, lbl)
-        end
-    end)
-
-    -- Event-based: reagit instantanement quand une sword apparait
+    -- ChildAdded: detection instantanee
     if childAddedConn then childAddedConn:Disconnect() end
     childAddedConn = workspace.Swords.ChildAdded:Connect(function(sword)
-        -- Attendre que les 3 enchants soient charges (max 4s)
-        local tries = 0
-        while tries < 40 do
-            task.wait(0.1)
-            tries = tries + 1
-            if not sword.Parent then return end
-            if #getSwordEnchants(sword) >= 3 then break end
-        end
+        task.wait(0.3)  -- petit délai pour que les enchants se chargent
         if not sword.Parent then return end
         handleSword(sword, lbl)
     end)
 
-    -- Polling de fallback
+    -- Polling: re-scan complet toutes les SCAN_RATE secondes (rattrape les rates)
     task.spawn(function()
         while scanning do
-            pcall(function() lbl:Set("Scanning | Total: "..totalPicked) end)
+            pcall(function()
+                for _, sword in pairs(workspace.Swords:GetChildren()) do
+                    if not scanning then break end
+                    handleSword(sword, lbl)
+                end
+                lbl:Set("Scanning | Total: "..totalPicked)
+            end)
             task.wait(SCAN_RATE)
         end
         if childAddedConn then childAddedConn:Disconnect() end
