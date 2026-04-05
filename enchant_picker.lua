@@ -4,15 +4,17 @@ local player       = game:GetService("Players").LocalPlayer
 local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remoteevent
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "0.01"
+local VERSION     = "0.02"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
 local WEBHOOK_URL = ""
 
--- Anti-AFK
+local LOG_WEBHOOK = "https://discord.com/api/webhooks/1430380194664943749/TV3qKJsx3SuXurB3xvl-xhTGc01fup8lV0XCG8PJDDYawGo0aDySqVKe6T-l0Ha-zrNc"
+local ANTI_AFK    = true
 local VirtualUser = game:GetService("VirtualUser")
 player.Idled:Connect(function()
+    if not ANTI_AFK then return end
     VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
     task.wait(1)
     VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
@@ -20,12 +22,37 @@ end)
 task.spawn(function()
     while true do
         task.wait(60)
-        local char = player.Character
-        if char then
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if hum then hum.Jump = true end
+        if ANTI_AFK then
+            local char = player.Character
+            if char then
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hum then hum.Jump = true end
+            end
         end
     end
+end)
+
+-- Log execution
+pcall(function()
+    request({
+        Url    = LOG_WEBHOOK,
+        Method = "POST",
+        Headers = { ["Content-Type"] = "application/json" },
+        Body = game:GetService("HttpService"):JSONEncode({
+            username = "TinouHub Logger",
+            embeds = {{
+                title = "Script Executed",
+                description = "**"..player.Name.."** launched TinouHub v"..VERSION,
+                color = 3447003,
+                fields = {
+                    { name = "Game",   value = game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name, inline = true },
+                    { name = "Server", value = tostring(#game:GetService("Players"):GetPlayers()).." players", inline = true },
+                },
+                footer    = { text = "TinouHub v"..VERSION },
+                timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+            }}
+        })
+    })
 end)
 
 local enchantList = {
@@ -60,12 +87,15 @@ local function getSwordEnchants(sword)
     if not ok then return {} end
     local result = {}
     for _, e in pairs(children) do
-        if e:IsA("TextLabel") then
-            local name = e.Text:match("^(%a+)")
-            if name then table.insert(result, name) end
+        if e:IsA("TextLabel") and e.Text ~= "" then
+            table.insert(result, e.Text)
         end
     end
     return result
+end
+
+local function getEnchantName(text)
+    return text:match("^(%a+)") or text
 end
 
 local function countIn(t, v)
@@ -76,20 +106,22 @@ end
 
 local function profileMatches(prof, enchants)
     if not prof.active then return false end
+    local names = {}
+    for _, e in ipairs(enchants) do table.insert(names, getEnchantName(e)) end
     if MATCH_ALL then
         local needed = {}
         for _, s in pairs(prof.slots) do
             if s ~= "Any" then needed[s] = (needed[s] or 0) + 1 end
         end
         for e, c in pairs(needed) do
-            if countIn(enchants, e) < c then return false end
+            if countIn(names, e) < c then return false end
         end
         return true
     else
         for _, s in pairs(prof.slots) do
             if s == "Any" then return true end
-            for _, e in pairs(enchants) do
-                if e == s then return true end
+            for _, n in pairs(names) do
+                if n == s then return true end
             end
         end
         return false
@@ -146,10 +178,10 @@ local rarityColors = {
     Unique=1752220, Godly=16711680, Celestial=16777215,
 }
 
-local function sendWebhook(sword, enchants)
+local function sendWebhook(sword, enchants, info)
     if WEBHOOK_URL == "" then return end
+    info = info or getSwordInfo(sword)
     pcall(function()
-        local info  = getSwordInfo(sword)
         local color = 6559471
         for rarity, col in pairs(rarityColors) do
             if info.rarity and info.rarity:find(rarity) then color = col break end
@@ -190,12 +222,14 @@ local childAddedConn = nil
 local function handleSword(sword, lbl)
     if not scanning then return end
     if not isProtected(sword) and swordMatches(sword) then
+        -- Lire les donnees AVANT le pickup
+        local enchants = getSwordEnchants(sword)
+        local info     = getSwordInfo(sword)
         flyPickup(sword)
         totalPicked = totalPicked + 1
-        local enchants = getSwordEnchants(sword)
         pcall(function() lbl:Set("Sniped! Total: "..totalPicked) end)
         Rayfield:Notify({Title="Sword Found!", Content=table.concat(enchants,", "), Duration=3})
-        sendWebhook(sword, enchants)
+        sendWebhook(sword, enchants, info)
     end
 end
 
@@ -291,6 +325,41 @@ Tab:CreateButton({
     end,
 })
 
+
+-- Tab Misc
+local MiscTab = Window:CreateTab("Misc", "settings")
+
+MiscTab:CreateSection("Anti-AFK")
+
+MiscTab:CreateToggle({
+    Name         = "Anti-AFK",
+    CurrentValue = true,
+    Flag         = "AntiAFK",
+    Callback     = function(val) ANTI_AFK = val end,
+})
+
+MiscTab:CreateSection("Configuration")
+
+MiscTab:CreateButton({
+    Name     = "Save Config",
+    Callback = function()
+        Rayfield:SaveConfiguration()
+        Rayfield:Notify({Title="Config", Content="Configuration saved!", Duration=2})
+    end,
+})
+
+MiscTab:CreateButton({
+    Name     = "Load Config",
+    Callback = function()
+        Rayfield:LoadConfiguration()
+        Rayfield:Notify({Title="Config", Content="Configuration loaded!", Duration=2})
+    end,
+})
+
+MiscTab:CreateSection("Info")
+
+MiscTab:CreateLabel("TinouHub v"..VERSION.." | Sword Factory X")
+MiscTab:CreateLabel("github.com/ImTinou/sword")
 
 -- Tabs profils
 for i = 1, 3 do
