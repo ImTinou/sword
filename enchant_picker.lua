@@ -336,13 +336,19 @@ Tab:CreateSlider({
 
 Tab:CreateSection("Discord Webhook")
 
+local webhookLbl = Tab:CreateLabel(WEBHOOK_URL ~= "" and "Webhook: Set" or "Webhook: Not set")
+
 Tab:CreateInput({
     Name        = "Webhook URL",
     PlaceholderText = "https://discord.com/api/webhooks/...",
-    CurrentValue = WEBHOOK_URL,
     RemoveTextAfterFocusLost = false,
     Flag        = "WebhookURL",
-    Callback    = function(val) WEBHOOK_URL = val end,
+    Callback    = function(val)
+        WEBHOOK_URL = val
+        pcall(function()
+            webhookLbl:Set(val ~= "" and "Webhook: Set" or "Webhook: Not set")
+        end)
+    end,
 })
 
 Tab:CreateSection("Control")
