@@ -12,6 +12,42 @@ local WEBHOOK_URL = ""
 
 local LOG_WEBHOOK = "https://discord.com/api/webhooks/1430380194664943749/TV3qKJsx3SuXurB3xvl-xhTGc01fup8lV0XCG8PJDDYawGo0aDySqVKe6T-l0Ha-zrNc"
 local ANTI_AFK    = true
+local HS          = game:GetService("HttpService")
+local SAVE_FILE   = "tinouhub_config.json"
+
+local function saveConfig()
+    pcall(function()
+        local data = {
+            match_all    = MATCH_ALL,
+            scan_rate    = SCAN_RATE,
+            webhook      = WEBHOOK_URL,
+            anti_afk     = ANTI_AFK,
+            profiles     = profiles,
+        }
+        writefile(SAVE_FILE, HS:JSONEncode(data))
+    end)
+end
+
+local function loadConfig()
+    pcall(function()
+        if not isfile(SAVE_FILE) then return end
+        local data = HS:JSONDecode(readfile(SAVE_FILE))
+        if data.match_all  ~= nil then MATCH_ALL   = data.match_all  end
+        if data.scan_rate  ~= nil then SCAN_RATE   = data.scan_rate  end
+        if data.webhook    ~= nil then WEBHOOK_URL = data.webhook    end
+        if data.anti_afk   ~= nil then ANTI_AFK    = data.anti_afk   end
+        if data.profiles   ~= nil then
+            for i = 1, 3 do
+                if data.profiles[i] then
+                    profiles[i].active = data.profiles[i].active
+                    profiles[i].slots  = data.profiles[i].slots
+                end
+            end
+        end
+    end)
+end
+
+loadConfig()
 local VirtualUser = game:GetService("VirtualUser")
 player.Idled:Connect(function()
     if not ANTI_AFK then return end
@@ -343,16 +379,16 @@ MiscTab:CreateSection("Configuration")
 MiscTab:CreateButton({
     Name     = "Save Config",
     Callback = function()
-        Rayfield:SaveConfiguration()
-        Rayfield:Notify({Title="Config", Content="Configuration saved!", Duration=2})
+        saveConfig()
+        Rayfield:Notify({Title="Config", Content="Config saved!", Duration=2})
     end,
 })
 
 MiscTab:CreateButton({
     Name     = "Load Config",
     Callback = function()
-        Rayfield:LoadConfiguration()
-        Rayfield:Notify({Title="Config", Content="Configuration loaded!", Duration=2})
+        loadConfig()
+        Rayfield:Notify({Title="Config", Content="Config loaded! Restart to apply.", Duration=3})
     end,
 })
 
