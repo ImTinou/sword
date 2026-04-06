@@ -4,7 +4,7 @@ local player       = game:GetService("Players").LocalPlayer
 local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remoteevent
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "0.1.1"
+local VERSION     = "0.1.2"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
@@ -540,19 +540,18 @@ local zoneIds = {
 local selectedZone    = "Beginner's Trials"
 local farming         = false
 local MIN_HP_PCT      = 0.35
-local FARM_REACH      = 30
 local farmSafePos     = nil
+local FARM_REACH      = 10
 local VU              = game:GetService("VirtualUser")
 
-local expandedHitboxes = {}
+local expandedNpcs = {}
 local function expandHitbox(npc)
-    if expandedHitboxes[npc] then return end
-    expandedHitboxes[npc] = true
+    if expandedNpcs[npc] then return end
+    expandedNpcs[npc] = true
     pcall(function()
-        for _, part in pairs(npc:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.Size = part.Size * (FARM_REACH / 5)
-            end
+        local root = npc:FindFirstChild("HumanoidRootPart")
+        if root then
+            root.Size = Vector3.new(FARM_REACH, FARM_REACH, FARM_REACH)
         end
     end)
 end
@@ -600,18 +599,14 @@ local function getNpcsInZone()
     return npcs
 end
 
-local function attackNpc(npc)
+local function goUnderNpc(npc)
     local char = player.Character
     if not char then return end
     local hrp     = char:FindFirstChild("HumanoidRootPart")
     local npcRoot = npc:FindFirstChild("HumanoidRootPart")
     if not hrp or not npcRoot then return end
     expandHitbox(npc)
-    -- Se positionner sous le mob pour eviter les hits
     hrp.CFrame = CFrame.new(npcRoot.Position.X, npcRoot.Position.Y - 5, npcRoot.Position.Z)
-    VU:Button1Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
-    task.wait(0.3)
-    VU:Button1Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
 end
 
 FarmTab:CreateSection("Zone")
@@ -629,6 +624,15 @@ FarmTab:CreateDropdown({
 FarmTab:CreateSection("Options")
 
 FarmTab:CreateSlider({
+    Name         = "Hitbox Reach (HRP size)",
+    Range        = {4, 50},
+    Increment    = 2,
+    CurrentValue = 10,
+    Flag         = "FarmReach",
+    Callback     = function(val) FARM_REACH = val expandedNpcs = {} end,
+})
+
+FarmTab:CreateSlider({
     Name         = "Min HP before retreat (%)",
     Range        = {10, 80},
     Increment    = 5,
@@ -637,14 +641,6 @@ FarmTab:CreateSlider({
     Callback     = function(val) MIN_HP_PCT = val / 100 end,
 })
 
-FarmTab:CreateSlider({
-    Name         = "Hitbox Reach",
-    Range        = {5, 100},
-    Increment    = 5,
-    CurrentValue = 30,
-    Flag         = "FarmReach",
-    Callback     = function(val) FARM_REACH = val expandedHitboxes = {} end,
-})
 
 FarmTab:CreateSection("Control")
 
@@ -695,40 +691,41 @@ FarmTab:CreateButton({
         task.spawn(function()
             local killed = 0
             while farming do
-                -- Verifier HP en debut de loop
-                if getHpPct() < MIN_HP_PCT then
-                    retreatAndHeal(farmStatusLbl)
-                end
-                if not farming then break end
-
                 local npcs = getNpcsInZone()
                 if #npcs == 0 then
                     pcall(function() farmStatusLbl:Set("No mobs found...") end)
                     task.wait(2)
-                else
-                    for _, npc in ipairs(npcs) do
-                        if not farming then break end
-                        local hum = npc:FindFirstChildOfClass("Humanoid")
-                        while hum and hum.Health > 0 and farming do
-                            -- Retreat si HP trop bas pendant le combat
-                            if getHpPct() < MIN_HP_PCT then
-                                retreatAndHeal(farmStatusLbl)
-                                if not farming then break end
-                            end
-                            attackNpc(npc)
-                            task.wait(0.15)
+                    continue
+                end
+                for _, npc in ipairs(npcs) do
+                    if not farming then break end
+                    local hum = npc:FindFirstChildOfClass("Humanoid")
+                    if not hum or hum.Health <= 0 then continue end
+                    -- TP une seule fois sous le mob
+                    goUnderNpc(npc)
+                    -- Attaquer sur place sans re-tp
+                    while hum.Health > 0 and farming do
+                        if getHpPct() < MIN_HP_PCT then
+                            VU:Button1Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+                            retreatAndHeal(farmStatusLbl)
+                            if not farming then break end
+                            goUnderNpc(npc)  -- reposition apres heal
                         end
-                        if hum and hum.Health <= 0 then
-                            killed = killed + 1
-                            pcall(function()
-                                farmStatusLbl:Set("Zone: "..selectedZone.." | Kills: "..killed.." | HP: "..math.floor(getHpPct()*100).."%")
-                            end)
-                        end
+                        VU:Button1Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+                        task.wait(0.1)
+                        VU:Button1Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+                        task.wait(0.05)
+                    end
+                    if hum.Health <= 0 then
+                        killed = killed + 1
+                        pcall(function()
+                            farmStatusLbl:Set("Kills: "..killed.." | HP: "..math.floor(getHpPct()*100).."%")
+                        end)
                     end
                 end
-                task.wait(0.3)
             end
-            expandedHitboxes = {}
+            VU:Button1Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+            expandedNpcs = {}
             pcall(function() farmStatusLbl:Set("Farm: Stopped | Kills: "..killed) end)
             if deathConn then deathConn:Disconnect() end
         end)
