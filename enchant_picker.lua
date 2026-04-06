@@ -67,9 +67,9 @@ task.spawn(function()
     while true do
         task.wait(60)
         if ANTI_AFK then
-            VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+            VirtualUser:Button2Down(workspace.CurrentCamera.ViewportSize / 2, workspace.CurrentCamera.CFrame)
             task.wait(0.5)
-            VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+            VirtualUser:Button2Up(workspace.CurrentCamera.ViewportSize / 2, workspace.CurrentCamera.CFrame)
         end
     end
 end)
@@ -488,7 +488,7 @@ local selectedZone    = "Beginner's Trials"
 local farming         = false
 local MIN_HP_PCT      = 0.35
 local FARM_POS_MODE   = "Dessous"
-local FARM_Y_OFFSET   = 20
+local FARM_Y_OFFSET   = 5
 local farmSafePos     = nil
 local FARM_REACH      = 10
 local VU              = game:GetService("VirtualUser")
@@ -513,9 +513,17 @@ local function getHpPct()
     return hum.Health / hum.MaxHealth
 end
 
+local function activateTool()
+    pcall(function()
+        local char = player.Character
+        if not char then return end
+        local tool = char:FindFirstChildOfClass("Tool")
+        if tool then tool:Activate() end
+    end)
+end
+
 local function retreatAndHeal(lbl)
-    -- Stop le click au cas ou
-    pcall(function() VU:Button1Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame) end)
+    pcall(function() end) -- placeholder, plus de Button1Up necessaire
     -- Teleport au safe spot
     local char = player.Character
     if char and farmSafePos then
@@ -594,7 +602,7 @@ FarmTab:CreateSlider({
     Name         = "Offset (studs)",
     Range        = {5, 60},
     Increment    = 5,
-    CurrentValue = 20,
+    CurrentValue = 5,
     Flag         = "FarmYOffset",
     Callback     = function(val) FARM_Y_OFFSET = val end,
 })
@@ -679,18 +687,20 @@ FarmTab:CreateButton({
                     if not hum or hum.Health <= 0 then continue end
                     -- TP une seule fois sous le mob
                     goUnderNpc(npc)
-                    -- Attaquer en se repositionnant a chaque coup
                     while hum.Health > 0 and farming do
                         if getHpPct() < MIN_HP_PCT then
-                            VU:Button1Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
                             retreatAndHeal(farmStatusLbl)
                             if not farming then break end
+                            goUnderNpc(npc)
                         end
-                        goUnderNpc(npc)  -- reposition a chaque coup (anti-knockback)
-                        VU:Button1Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
-                        task.wait(0.1)
-                        VU:Button1Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
-                        task.wait(0.05)
+                        -- Reposition seulement si projete loin
+                        local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+                        local npcRoot = npc:FindFirstChild("HumanoidRootPart")
+                        if hrp and npcRoot and (hrp.Position - npcRoot.Position).Magnitude > FARM_Y_OFFSET + 10 then
+                            goUnderNpc(npc)
+                        end
+                        activateTool()
+                        task.wait(0.15)
                     end
                     if hum.Health <= 0 then
                         killed = killed + 1
@@ -700,7 +710,6 @@ FarmTab:CreateButton({
                     end
                 end
             end
-            VU:Button1Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
             expandedNpcs = {}
             pcall(function() farmStatusLbl:Set("Farm: Stopped | Kills: "..killed) end)
             if deathConn then deathConn:Disconnect() end
