@@ -4,7 +4,7 @@ local player       = game:GetService("Players").LocalPlayer
 local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remoteevent
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "0.1"
+local VERSION     = "0.1.1"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
@@ -539,9 +539,23 @@ local zoneIds = {
 
 local selectedZone    = "Beginner's Trials"
 local farming         = false
-local MIN_HP_PCT      = 0.35   -- retraite si HP < 35%
-local farmSafePos     = nil    -- sauvegarde quand on demarre le farm
+local MIN_HP_PCT      = 0.35
+local FARM_REACH      = 30
+local farmSafePos     = nil
 local VU              = game:GetService("VirtualUser")
+
+local expandedHitboxes = {}
+local function expandHitbox(npc)
+    if expandedHitboxes[npc] then return end
+    expandedHitboxes[npc] = true
+    pcall(function()
+        for _, part in pairs(npc:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.Size = part.Size * (FARM_REACH / 5)
+            end
+        end
+    end)
+end
 
 local function getHpPct()
     local char = player.Character
@@ -592,14 +606,12 @@ local function attackNpc(npc)
     local hrp     = char:FindFirstChild("HumanoidRootPart")
     local npcRoot = npc:FindFirstChild("HumanoidRootPart")
     if not hrp or not npcRoot then return end
-    -- Blink sur le mob a 3 studs
-    hrp.CFrame = npcRoot.CFrame * CFrame.new(0, 0, 3)
-    -- Maintien du clic pour taper
+    expandHitbox(npc)
+    -- Se positionner sous le mob pour eviter les hits
+    hrp.CFrame = CFrame.new(npcRoot.Position.X, npcRoot.Position.Y - 5, npcRoot.Position.Z)
     VU:Button1Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
     task.wait(0.3)
     VU:Button1Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
-    -- Retour au safe spot
-    if farmSafePos then hrp.CFrame = farmSafePos end
 end
 
 FarmTab:CreateSection("Zone")
@@ -623,6 +635,15 @@ FarmTab:CreateSlider({
     CurrentValue = 35,
     Flag         = "FarmMinHp",
     Callback     = function(val) MIN_HP_PCT = val / 100 end,
+})
+
+FarmTab:CreateSlider({
+    Name         = "Hitbox Reach",
+    Range        = {5, 100},
+    Increment    = 5,
+    CurrentValue = 30,
+    Flag         = "FarmReach",
+    Callback     = function(val) FARM_REACH = val expandedHitboxes = {} end,
 })
 
 FarmTab:CreateSection("Control")
@@ -707,6 +728,7 @@ FarmTab:CreateButton({
                 end
                 task.wait(0.3)
             end
+            expandedHitboxes = {}
             pcall(function() farmStatusLbl:Set("Farm: Stopped | Kills: "..killed) end)
             if deathConn then deathConn:Disconnect() end
         end)
