@@ -4,10 +4,11 @@ local player       = game:GetService("Players").LocalPlayer
 local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remoteevent
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "0.06"
+local VERSION     = "0.1"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
+local AUTO_BANK   = true
 local WEBHOOK_URL = ""
 
 local LOG_WEBHOOK = "https://discord.com/api/webhooks/1430380194664943749/TV3qKJsx3SuXurB3xvl-xhTGc01fup8lV0XCG8PJDDYawGo0aDySqVKe6T-l0Ha-zrNc"
@@ -25,6 +26,7 @@ local profiles = {
 local function saveConfig()
     pcall(function()
         local data = {
+            auto_bank    = AUTO_BANK,
             match_all    = MATCH_ALL,
             scan_rate    = SCAN_RATE,
             webhook      = WEBHOOK_URL,
@@ -39,6 +41,7 @@ local function loadConfig()
     pcall(function()
         if not isfile(SAVE_FILE) then return end
         local data = HS:JSONDecode(readfile(SAVE_FILE))
+        if data.auto_bank  ~= nil then AUTO_BANK   = data.auto_bank  end
         if data.match_all  ~= nil then MATCH_ALL   = data.match_all  end
         if data.scan_rate  ~= nil then SCAN_RATE   = data.scan_rate  end
         if data.webhook    ~= nil then WEBHOOK_URL = data.webhook    end
@@ -198,7 +201,11 @@ local function flyPickup(sword)
     hrp.CFrame = origin
 end
 
-local totalPicked = 0
+local totalPicked  = 0
+local ascending     = false
+local ascAttempts   = 0
+local targetQuality = "Miraculous"
+local ascMode       = "Rarity"
 
 local function getSwordInfo(sword)
     local info = {}
@@ -218,6 +225,20 @@ local rarityColors = {
     Epic=10181046, Legendary=16766720, Mythical=15158332,
     Unique=1752220, Godly=16711680, Celestial=16777215,
 }
+
+local qualityOrder = {
+    "Common","Uncommon","Rare","Epic","Legendary",
+    "Mythical","Unique","Godly","Celestial",
+    "Astounding","Fabulous","Glorious","Miraculous",
+    "Staggering","Supernatural","Unbeatable",
+}
+local function qualityRank(text)
+    if not text then return 0 end
+    for i = #qualityOrder, 1, -1 do
+        if text:find(qualityOrder[i]) then return i end
+    end
+    return 0
+end
 
 local function sendWebhook(sword, enchants, info)
     if WEBHOOK_URL == "" then return end
@@ -258,23 +279,82 @@ local function sendWebhook(sword, enchants, info)
     end)
 end
 
+local function getAscenderSword()
+    local stats = game:GetService("ReplicatedStorage"):FindFirstChild("Stats")
+    if not stats then return nil end
+    local pStats = stats:FindFirstChild(player.Name)
+    if not pStats then return nil end
+    local ascFolder = pStats:FindFirstChild("Ascender")
+    if not ascFolder then return nil end
+    local children = ascFolder:GetChildren()
+    if #children == 0 then return nil end
+    return workspace.Swords:FindFirstChild(children[1].Name)
+end
+
+local function sendAscenderWebhook(sword, quality, attempts)
+    if WEBHOOK_URL == "" then return end
+    local info    = getSwordInfo(sword)
+    local enchants = getSwordEnchants(sword)
+    pcall(function()
+        local color = 16766720
+        for rarity, col in pairs(rarityColors) do
+            if quality and quality:find(rarity) then color = col break end
+        end
+        local fields = {}
+        for idx, e in ipairs(enchants) do
+            table.insert(fields, { name = "Enchant "..idx, value = e, inline = true })
+        end
+        table.insert(fields, { name = "Quality",  value = quality or "?",     inline = true })
+        table.insert(fields, { name = "Attempts", value = tostring(attempts), inline = true })
+        table.insert(fields, { name = "Level",    value = info.level or "?",  inline = true })
+        table.insert(fields, { name = "Worth",    value = info.worth or "?",  inline = true })
+        request({
+            Url    = WEBHOOK_URL,
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = HS:JSONEncode({
+                username   = "TinouHUB",
+                avatar_url = "https://tr.rbxcdn.com/180DAY-placeholder/150/150/AvatarHeadshot/Webp/noFilter",
+                embeds = {{
+                    title       = "Ascender — Target Reached!",
+                    description = "**"..player.Name.."** atteint **"..quality.."** en "..attempts.." essais!",
+                    color       = color,
+                    fields      = fields,
+                    footer      = { text = "TinouHub v"..VERSION.." | Sword Factory X" },
+                    timestamp   = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+                }}
+            })
+        })
+    end)
+end
+
 local childAddedConn = nil
 local processingSwords = {}  -- guard anti-double-pickup
 
 local function handleSword(sword, lbl)
     if not scanning then return end
-    local swordName = sword.Name
-    if processingSwords[swordName] then return end
+    if processingSwords[sword] then return end
     if not isProtected(sword) and swordMatches(sword) then
-        processingSwords[swordName] = true
+        processingSwords[sword] = true
         local enchants = getSwordEnchants(sword)
         local info     = getSwordInfo(sword)
         flyPickup(sword)
+        if AUTO_BANK then
+            task.wait(0.3)
+            local stats = game:GetService("ReplicatedStorage"):FindFirstChild("Stats")
+            local bankFolder = stats and stats:FindFirstChild(player.Name) and stats[player.Name]:FindFirstChild("Bank")
+            if bankFolder then
+                pcall(function() remote:FireServer("Set Hotbar", sword.Name, "Inventory") end)
+                task.wait(0.4)
+                if not bankFolder:FindFirstChild(sword.Name) then
+                    Rayfield:Notify({Title="Scanner", Content="Bank pleine! Sword en hotbar.", Duration=5})
+                end
+            end
+        end
         totalPicked = totalPicked + 1
         pcall(function() lbl:Set("Sniped! Total: "..totalPicked) end)
         Rayfield:Notify({Title="Sword Found!", Content=table.concat(enchants,", "), Duration=3})
         sendWebhook(sword, enchants, info)
-        task.delay(5, function() processingSwords[swordName] = nil end)
     end
 end
 
@@ -302,6 +382,7 @@ local function startScan(lbl)
             task.wait(SCAN_RATE)
         end
         if childAddedConn then childAddedConn:Disconnect() end
+        processingSwords = {}
         pcall(function() lbl:Set("Stopped | Total: "..totalPicked) end)
     end)
 end
@@ -329,6 +410,13 @@ local Window = Rayfield:CreateWindow({
 local Tab = Window:CreateTab("Scanner", "shield")
 
 Tab:CreateSection("Options")
+
+Tab:CreateToggle({
+    Name         = "Auto-Bank matched swords",
+    CurrentValue = AUTO_BANK,
+    Flag         = "AutoBank",
+    Callback     = function(val) AUTO_BANK = val saveConfig() end,
+})
 
 Tab:CreateToggle({
     Name         = "Match all 3 enchants per profile",
@@ -439,14 +527,14 @@ local zoneList = {
 -- Mapping zone name -> area ID (remote arg "Teleport Area", [id])
 local zoneIds = {
     ["Beginner's Trials"]  = 1,
-    ["Crystal Caverns"]    = 2,
-    ["Snowy Fields"]       = 3,
-    ["Mystical Forest"]    = 4,
-    ["Stranded Island"]    = 5,
-    ["Heavenly Gates"]     = 6,
+    ["Mystical Forest"]    = 2,
+    ["Stranded Island"]    = 3,
+    ["Snowy Fields"]       = 4,
+    ["Crystal Caverns"]    = 5,
+    ["Volcanic Isles"]     = 6,
     ["Intraplanetarium"]   = 7,
-    ["Volcanic Isles"]     = 8,
-    ["Ancient Mineshaft"]  = 9,
+    ["Ancient Mineshaft"]  = 8,
+    ["Heavenly Gates"]     = 9,
 }
 
 local selectedZone    = "Beginner's Trials"
@@ -482,24 +570,15 @@ local function retreatAndHeal(lbl)
     end
 end
 
-local function getNpcsInZone(zoneName)
+local function getNpcsInZone()
     local npcs = {}
-    local zoneFolder = workspace:FindFirstChild("Areas") and workspace.Areas:FindFirstChild(zoneName)
+    local char = player.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
     for _, npc in pairs(workspace.NPCs:GetChildren()) do
         local hum = npc:FindFirstChildOfClass("Humanoid")
-        if hum and hum.Health > 0 then
-            if zoneFolder then
-                local map = zoneFolder:FindFirstChild("Map")
-                if map then
-                    local ref = map:FindFirstChildOfClass("BasePart")
-                    if ref then
-                        local npcRoot = npc:FindFirstChild("HumanoidRootPart")
-                        if npcRoot and (npcRoot.Position - ref.Position).Magnitude < 500 then
-                            table.insert(npcs, npc)
-                        end
-                    end
-                end
-            else
+        local npcRoot = npc:FindFirstChild("HumanoidRootPart")
+        if hum and hum.Health > 0 and npcRoot then
+            if not hrp or (npcRoot.Position - hrp.Position).Magnitude < 600 then
                 table.insert(npcs, npc)
             end
         end
@@ -601,7 +680,7 @@ FarmTab:CreateButton({
                 end
                 if not farming then break end
 
-                local npcs = getNpcsInZone(selectedZone)
+                local npcs = getNpcsInZone()
                 if #npcs == 0 then
                     pcall(function() farmStatusLbl:Set("No mobs found...") end)
                     task.wait(2)
@@ -639,6 +718,88 @@ FarmTab:CreateButton({
     Callback = function()
         farming = false
         Rayfield:Notify({Title="Farm", Content="Farm stopped.", Duration=2})
+    end,
+})
+
+-- Tab Ascender
+local AscTab = Window:CreateTab("Ascender", "trending-up")
+
+AscTab:CreateSection("Configuration")
+
+local ascStatusLbl = AscTab:CreateLabel("Ascender: Idle")
+
+AscTab:CreateDropdown({
+    Name            = "Mode",
+    Options         = {"Rarity","Quality","Level","Mold","Class","Enchant"},
+    CurrentOption   = "Rarity",
+    MultipleOptions = false,
+    Flag            = "AscMode",
+    Callback        = function(opt)
+        ascMode = type(opt) == "table" and opt[1] or opt
+    end,
+})
+
+AscTab:CreateDropdown({
+    Name            = "Stopper a la qualite",
+    Options         = qualityOrder,
+    CurrentOption   = "Miraculous",
+    MultipleOptions = false,
+    Flag            = "AscTarget",
+    Callback        = function(opt)
+        targetQuality = type(opt) == "table" and opt[1] or opt
+    end,
+})
+
+AscTab:CreateSection("Control")
+
+AscTab:CreateButton({
+    Name     = "Start Auto-Ascend",
+    Callback = function()
+        if ascending then return end
+        local sword = getAscenderSword()
+        if not sword then
+            Rayfield:Notify({Title="Ascender", Content="Aucune sword dans l'Ascender!", Duration=3})
+            return
+        end
+        ascending   = true
+        ascAttempts = 0
+        task.spawn(function()
+            while ascending do
+                local s = getAscenderSword()
+                if not s then
+                    ascending = false
+                    pcall(function() ascStatusLbl:Set("Ascender: sword introuvable") end)
+                    break
+                end
+                local currentQ = stripRichText(s.Main.Gui.ItemInfo.RarityQuality.Text)
+                if qualityRank(currentQ) >= qualityRank(targetQuality) then
+                    ascending = false
+                    pcall(function() ascStatusLbl:Set("Done! "..currentQ.." | "..ascAttempts.." essais") end)
+                    Rayfield:Notify({Title="Ascender", Content=currentQ.." atteint en "..ascAttempts.." essais!", Duration=6})
+                    sendAscenderWebhook(s, currentQ, ascAttempts)
+                    break
+                end
+                pcall(function()
+                    remote:FireServer("Set Ascender Mode", ascMode)
+                end)
+                ascAttempts = ascAttempts + 1
+                pcall(function() ascStatusLbl:Set("Ascending... "..currentQ.." | "..ascAttempts.." essais") end)
+                task.wait(0.12)
+            end
+            if ascending then
+                ascending = false
+                pcall(function() ascStatusLbl:Set("Stopped | "..ascAttempts.." essais") end)
+            end
+        end)
+        Rayfield:Notify({Title="Ascender", Content="Auto-ascend lance!", Duration=2})
+    end,
+})
+
+AscTab:CreateButton({
+    Name     = "Stop Auto-Ascend",
+    Callback = function()
+        ascending = false
+        Rayfield:Notify({Title="Ascender", Content="Stopped.", Duration=2})
     end,
 })
 
