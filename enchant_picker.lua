@@ -18,29 +18,6 @@ local ANTI_AFK    = true
 local HS          = game:GetService("HttpService")
 local SAVE_FILE   = "tinouhub_config.json"
 
-local GAMEPASSES = { x2Cash=false, VIP=false, MobSlayer=false }
-local function loadGamepasses()
-    pcall(function()
-        local gp = game:GetService("ReplicatedStorage").Stats[player.Name].Gamepasses
-        for name in pairs(GAMEPASSES) do
-            local v = gp:FindFirstChild(name)
-            GAMEPASSES[name] = v ~= nil and v.Value or false
-        end
-    end)
-end
-loadGamepasses()
-
-local function activateGamepasses()
-    pcall(function()
-        local gp = game:GetService("ReplicatedStorage").Stats[player.Name].Gamepasses
-        for _, name in ipairs({"x2Cash","VIP","MobSlayer"}) do
-            local v = gp:FindFirstChild(name)
-            if v then v.Value = true end
-            GAMEPASSES[name] = true
-        end
-    end)
-end
-activateGamepasses()
 
 -- Profiles defined HERE so loadConfig() can modify them at startup
 local profiles = {
@@ -206,13 +183,13 @@ local function flyPickup(sword)
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-    local ok, swordCF = pcall(function() return sword.Main.CFrame end)
+    local ok, swordPos = pcall(function() return sword.Main.Position end)
     if not ok then return end
     local origin = hrp.CFrame
-    hrp.CFrame = swordCF * CFrame.new(0, 15, 0)
+    hrp.CFrame = CFrame.new(swordPos + Vector3.new(0, 15, 0))
     task.wait(0.1)
     local tween = TweenService:Create(hrp, TweenInfo.new(0.25, Enum.EasingStyle.Sine), {
-        CFrame = swordCF * CFrame.new(0, 2, 0)
+        CFrame = CFrame.new(swordPos + Vector3.new(0, 2, 0))
     })
     tween:Play()
     tween.Completed:Wait()
@@ -349,13 +326,10 @@ local function sendAscenderWebhook(sword, quality, attempts)
 end
 
 local childAddedConn = nil
-local processingSwords = {}  -- guard anti-double-pickup
 
 local function handleSword(sword, lbl)
     if not scanning then return end
-    if processingSwords[sword] then return end
     if not isProtected(sword) and swordMatches(sword) then
-        processingSwords[sword] = true
         local enchants = getSwordEnchants(sword)
         local info     = getSwordInfo(sword)
         flyPickup(sword)
@@ -398,7 +372,6 @@ local function startScan(lbl)
             task.wait(SCAN_RATE)
         end
         if childAddedConn then childAddedConn:Disconnect() end
-        processingSwords = {}
         pcall(function() lbl:Set("Stopped | Total: "..totalPicked) end)
     end)
 end
@@ -482,18 +455,6 @@ end })
 SettingsTab:CreateButton({ Name="Save Config", Callback=function() saveConfig() Rayfield:Notify({Title="Config", Content="Saved!", Duration=2}) end })
 SettingsTab:CreateButton({ Name="Load Config", Callback=function() loadConfig() Rayfield:Notify({Title="Config", Content="Loaded! Restart to apply.", Duration=3}) end })
 
-SettingsTab:CreateSection("Gamepasses")
-local gpLabels = {}
-for _, name in ipairs({"x2Cash","VIP","MobSlayer"}) do
-    gpLabels[name] = SettingsTab:CreateLabel(name..": "..(GAMEPASSES[name] and "Owned" or "Not owned"))
-end
-SettingsTab:CreateButton({ Name="Activate All Gamepasses", Callback=function()
-    activateGamepasses()
-    for _, name in ipairs({"x2Cash","VIP","MobSlayer"}) do
-        pcall(function() gpLabels[name]:Set(name..": Owned") end)
-    end
-    Rayfield:Notify({Title="Gamepasses", Content="Activated!", Duration=2})
-end })
 
 SettingsTab:CreateSection("Info")
 SettingsTab:CreateLabel("TinouHub v"..VERSION.." | Sword Factory X")
