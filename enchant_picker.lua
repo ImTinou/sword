@@ -2,13 +2,15 @@ local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
 local player       = game:GetService("Players").LocalPlayer
 local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remoteevent
+local remoteFunc   = game:GetService("ReplicatedStorage").Paper.Remotes.__remotefunction
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "0.1.2"
+local VERSION     = "0.1.3"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
 local AUTO_BANK   = true
+local AUTO_SELL   = false
 local WEBHOOK_URL = ""
 
 local LOG_WEBHOOK = "https://discord.com/api/webhooks/1430380194664943749/TV3qKJsx3SuXurB3xvl-xhTGc01fup8lV0XCG8PJDDYawGo0aDySqVKe6T-l0Ha-zrNc"
@@ -27,6 +29,7 @@ local function saveConfig()
     pcall(function()
         local data = {
             auto_bank    = AUTO_BANK,
+            auto_sell    = AUTO_SELL,
             match_all    = MATCH_ALL,
             scan_rate    = SCAN_RATE,
             webhook      = WEBHOOK_URL,
@@ -42,6 +45,7 @@ local function loadConfig()
         if not isfile(SAVE_FILE) then return end
         local data = HS:JSONDecode(readfile(SAVE_FILE))
         if data.auto_bank  ~= nil then AUTO_BANK   = data.auto_bank  end
+        if data.auto_sell  ~= nil then AUTO_SELL   = data.auto_sell  end
         if data.match_all  ~= nil then MATCH_ALL   = data.match_all  end
         if data.scan_rate  ~= nil then SCAN_RATE   = data.scan_rate  end
         if data.webhook    ~= nil then WEBHOOK_URL = data.webhook    end
@@ -59,21 +63,13 @@ end
 
 loadConfig()
 local VirtualUser = game:GetService("VirtualUser")
-player.Idled:Connect(function()
-    if not ANTI_AFK then return end
-    VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
-    task.wait(1)
-    VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
-end)
 task.spawn(function()
     while true do
         task.wait(60)
         if ANTI_AFK then
-            local char = player.Character
-            if char then
-                local hum = char:FindFirstChildOfClass("Humanoid")
-                if hum then hum.Jump = true end
-            end
+            VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+            task.wait(0.5)
+            VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
         end
     end
 end)
@@ -341,14 +337,10 @@ local function handleSword(sword, lbl)
         flyPickup(sword)
         if AUTO_BANK then
             task.wait(0.3)
-            local stats = game:GetService("ReplicatedStorage"):FindFirstChild("Stats")
-            local bankFolder = stats and stats:FindFirstChild(player.Name) and stats[player.Name]:FindFirstChild("Bank")
-            if bankFolder then
-                pcall(function() remote:FireServer("Set Hotbar", sword.Name, "Inventory") end)
-                task.wait(0.4)
-                if not bankFolder:FindFirstChild(sword.Name) then
-                    Rayfield:Notify({Title="Scanner", Content="Bank pleine! Sword en hotbar.", Duration=5})
-                end
+            pcall(function() remote:FireServer("Set Hotbar", sword.Name, "Inventory") end)
+            if AUTO_SELL then
+                task.wait(0.5)
+                pcall(function() remoteFunc:InvokeServer("Sell All") end)
             end
         end
         totalPicked = totalPicked + 1
@@ -406,114 +398,69 @@ local Window = Rayfield:CreateWindow({
     },
 })
 
--- Tab principal
+-- ===================== SCANNER =====================
 local Tab = Window:CreateTab("Scanner", "shield")
 
 Tab:CreateSection("Options")
+Tab:CreateToggle({ Name="Auto-Bank matched swords", CurrentValue=AUTO_BANK, Flag="AutoBank", Callback=function(v) AUTO_BANK=v saveConfig() end })
+Tab:CreateToggle({ Name="Auto-Sell apres bank",     CurrentValue=AUTO_SELL, Flag="AutoSell", Callback=function(v) AUTO_SELL=v saveConfig() end })
+Tab:CreateToggle({ Name="Match ALL enchants",        CurrentValue=MATCH_ALL, Flag="MatchAll", Callback=function(v) MATCH_ALL=v saveConfig() end })
+Tab:CreateSlider({ Name="Scan Rate (s)", Range={0.1,3}, Increment=0.1, CurrentValue=SCAN_RATE, Flag="ScanRate", Callback=function(v) SCAN_RATE=v saveConfig() end })
 
-Tab:CreateToggle({
-    Name         = "Auto-Bank matched swords",
-    CurrentValue = AUTO_BANK,
-    Flag         = "AutoBank",
-    Callback     = function(val) AUTO_BANK = val saveConfig() end,
-})
-
-Tab:CreateToggle({
-    Name         = "Match all 3 enchants per profile",
-    CurrentValue = MATCH_ALL,
-    Flag         = "MatchAll",
-    Callback     = function(val) MATCH_ALL = val saveConfig() end,
-})
-
-Tab:CreateSlider({
-    Name         = "Scan Rate (s)",
-    Range        = {0.1, 3},
-    Increment    = 0.1,
-    CurrentValue = SCAN_RATE,
-    Flag         = "ScanRate",
-    Callback     = function(val) SCAN_RATE = val saveConfig() end,
-})
-
-Tab:CreateSection("Discord Webhook")
-
-local function webhookStatus()
-    if WEBHOOK_URL == "" then return "Webhook: Not set" end
-    return "Webhook: ..."..(WEBHOOK_URL:sub(-20))
-end
-
+Tab:CreateSection("Webhook")
+local function webhookStatus() return WEBHOOK_URL=="" and "Non configure" or "..."..(WEBHOOK_URL:sub(-20)) end
 local webhookLbl = Tab:CreateLabel(webhookStatus())
-
-Tab:CreateInput({
-    Name        = "Webhook URL",
-    PlaceholderText = "https://discord.com/api/webhooks/...",
-    RemoveTextAfterFocusLost = false,
-    Flag        = "WebhookURL",
-    Callback    = function(val)
-        if val == "" then return end  -- ignore si vide
-        WEBHOOK_URL = val
-        saveConfig()  -- auto-save
+Tab:CreateInput({ Name="Webhook URL", PlaceholderText="https://discord.com/api/webhooks/...", RemoveTextAfterFocusLost=false, Flag="WebhookURL",
+    Callback=function(val)
+        if val=="" then return end
+        WEBHOOK_URL=val saveConfig()
         pcall(function() webhookLbl:Set(webhookStatus()) end)
-        Rayfield:Notify({Title="Webhook", Content="URL sauvegardee!", Duration=2})
-    end,
-})
+        Rayfield:Notify({Title="Webhook", Content="Sauvegarde!", Duration=2})
+    end })
 
 Tab:CreateSection("Control")
-
 local statusLbl = Tab:CreateLabel("Status: Ready")
+Tab:CreateButton({ Name="Start Scanner", Callback=function()
+    if not scanning then startScan(statusLbl) Rayfield:Notify({Title="Scanner", Content="Demarré!", Duration=2}) end
+end })
+Tab:CreateButton({ Name="Stop Scanner", Callback=function()
+    scanning=false Rayfield:Notify({Title="Scanner", Content="Arreté.", Duration=2})
+end })
 
-Tab:CreateButton({
-    Name     = "Start Auto-Pickup",
-    Callback = function()
-        if not scanning then
-            startScan(statusLbl)
-            Rayfield:Notify({Title="Enchant Picker", Content="Scan started!", Duration=2})
-        end
-    end,
-})
+-- ===================== PROFILES =====================
+local ProfTab = Window:CreateTab("Profiles", "star")
+local function getOpt(o) return type(o)=="table" and o[1] or o end
 
-Tab:CreateButton({
-    Name     = "Stop Auto-Pickup",
-    Callback = function()
-        scanning = false
-        Rayfield:Notify({Title="Enchant Picker", Content="Stopped.", Duration=2})
-    end,
-})
+for i = 1, 3 do
+    local prof = profiles[i]
+    ProfTab:CreateSection("Profile "..i)
+    ProfTab:CreateToggle({ Name="Activer Profile "..i, CurrentValue=prof.active, Flag="P"..i.."On",
+        Callback=function(v) profiles[i].active=v saveConfig() end })
+    ProfTab:CreateDropdown({ Name="Enchant 1", Options=enchantList, CurrentOption=prof.slots[1], MultipleOptions=false, Flag="P"..i.."S1",
+        Callback=function(o) profiles[i].slots[1]=getOpt(o) saveConfig() end })
+    ProfTab:CreateDropdown({ Name="Enchant 2", Options=enchantList, CurrentOption=prof.slots[2], MultipleOptions=false, Flag="P"..i.."S2",
+        Callback=function(o) profiles[i].slots[2]=getOpt(o) saveConfig() end })
+    ProfTab:CreateDropdown({ Name="Enchant 3", Options=enchantList, CurrentOption=prof.slots[3], MultipleOptions=false, Flag="P"..i.."S3",
+        Callback=function(o) profiles[i].slots[3]=getOpt(o) saveConfig() end })
+end
 
+-- ===================== SETTINGS =====================
+local SettingsTab = Window:CreateTab("Settings", "settings")
 
--- Tab Misc
-local MiscTab = Window:CreateTab("Misc", "settings")
+SettingsTab:CreateSection("General")
+SettingsTab:CreateToggle({ Name="Anti-AFK", CurrentValue=ANTI_AFK, Flag="AntiAFK", Callback=function(v) ANTI_AFK=v saveConfig() end })
 
-MiscTab:CreateSection("Anti-AFK")
+SettingsTab:CreateSection("Actions")
+SettingsTab:CreateButton({ Name="Sell All", Callback=function()
+    pcall(function() remoteFunc:InvokeServer("Sell All") end)
+    Rayfield:Notify({Title="Sell", Content="Vendu!", Duration=2})
+end })
+SettingsTab:CreateButton({ Name="Save Config", Callback=function() saveConfig() Rayfield:Notify({Title="Config", Content="Sauvegarde!", Duration=2}) end })
+SettingsTab:CreateButton({ Name="Load Config", Callback=function() loadConfig() Rayfield:Notify({Title="Config", Content="Charge! Restart pour appliquer.", Duration=3}) end })
 
-MiscTab:CreateToggle({
-    Name         = "Anti-AFK",
-    CurrentValue = ANTI_AFK,
-    Flag         = "AntiAFK",
-    Callback     = function(val) ANTI_AFK = val saveConfig() end,
-})
-
-MiscTab:CreateSection("Configuration")
-
-MiscTab:CreateButton({
-    Name     = "Save Config",
-    Callback = function()
-        saveConfig()
-        Rayfield:Notify({Title="Config", Content="Config saved!", Duration=2})
-    end,
-})
-
-MiscTab:CreateButton({
-    Name     = "Load Config",
-    Callback = function()
-        loadConfig()
-        Rayfield:Notify({Title="Config", Content="Config loaded! Restart to apply.", Duration=3})
-    end,
-})
-
-MiscTab:CreateSection("Info")
-
-MiscTab:CreateLabel("TinouHub v"..VERSION.." | Sword Factory X")
-MiscTab:CreateLabel("github.com/ImTinou/sword")
+SettingsTab:CreateSection("Info")
+SettingsTab:CreateLabel("TinouHub v"..VERSION.." | Sword Factory X")
+SettingsTab:CreateLabel("github.com/ImTinou/sword")
 
 -- Tab Farm
 local FarmTab = Window:CreateTab("Farm", "zap")
@@ -540,6 +487,8 @@ local zoneIds = {
 local selectedZone    = "Beginner's Trials"
 local farming         = false
 local MIN_HP_PCT      = 0.35
+local FARM_POS_MODE   = "Dessous"
+local FARM_Y_OFFSET   = 20
 local farmSafePos     = nil
 local FARM_REACH      = 10
 local VU              = game:GetService("VirtualUser")
@@ -606,7 +555,14 @@ local function goUnderNpc(npc)
     local npcRoot = npc:FindFirstChild("HumanoidRootPart")
     if not hrp or not npcRoot then return end
     expandHitbox(npc)
-    hrp.CFrame = CFrame.new(npcRoot.Position.X, npcRoot.Position.Y - 5, npcRoot.Position.Z)
+    local p = npcRoot.Position
+    if FARM_POS_MODE == "Dessous" then
+        hrp.CFrame = CFrame.new(p.X, p.Y - FARM_Y_OFFSET, p.Z)
+    elseif FARM_POS_MODE == "Dessus" then
+        hrp.CFrame = CFrame.new(p.X, p.Y + FARM_Y_OFFSET, p.Z)
+    elseif FARM_POS_MODE == "Derriere" then
+        hrp.CFrame = npcRoot.CFrame * CFrame.new(0, 0, FARM_Y_OFFSET)
+    end
 end
 
 FarmTab:CreateSection("Zone")
@@ -622,6 +578,26 @@ FarmTab:CreateDropdown({
 })
 
 FarmTab:CreateSection("Options")
+
+FarmTab:CreateDropdown({
+    Name            = "Position",
+    Options         = {"Dessous","Dessus","Derriere"},
+    CurrentOption   = "Dessous",
+    MultipleOptions = false,
+    Flag            = "FarmPosMode",
+    Callback        = function(opt)
+        FARM_POS_MODE = type(opt) == "table" and opt[1] or opt
+    end,
+})
+
+FarmTab:CreateSlider({
+    Name         = "Offset (studs)",
+    Range        = {5, 60},
+    Increment    = 5,
+    CurrentValue = 20,
+    Flag         = "FarmYOffset",
+    Callback     = function(val) FARM_Y_OFFSET = val end,
+})
 
 FarmTab:CreateSlider({
     Name         = "Hitbox Reach (HRP size)",
@@ -655,10 +631,10 @@ FarmTab:CreateButton({
             return
         end
         local ok, err = pcall(function()
-            remote:FireServer("Teleport Area", id)
+            remoteFunc:InvokeServer("Teleport Area", id)
         end)
         if ok then
-            Rayfield:Notify({Title="Farm", Content="TP fired -> "..selectedZone.." (id="..id..")", Duration=3})
+            Rayfield:Notify({Title="Farm", Content="TP -> "..selectedZone, Duration=3})
         else
             Rayfield:Notify({Title="Farm", Content="TP error: "..(err or "?"), Duration=5})
         end
@@ -703,14 +679,14 @@ FarmTab:CreateButton({
                     if not hum or hum.Health <= 0 then continue end
                     -- TP une seule fois sous le mob
                     goUnderNpc(npc)
-                    -- Attaquer sur place sans re-tp
+                    -- Attaquer en se repositionnant a chaque coup
                     while hum.Health > 0 and farming do
                         if getHpPct() < MIN_HP_PCT then
                             VU:Button1Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
                             retreatAndHeal(farmStatusLbl)
                             if not farming then break end
-                            goUnderNpc(npc)  -- reposition apres heal
                         end
+                        goUnderNpc(npc)  -- reposition a chaque coup (anti-knockback)
                         VU:Button1Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
                         task.wait(0.1)
                         VU:Button1Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
@@ -740,131 +716,83 @@ FarmTab:CreateButton({
     end,
 })
 
--- Tab Ascender
+-- ===================== ASCENDER =====================
 local AscTab = Window:CreateTab("Ascender", "trending-up")
 
-AscTab:CreateSection("Configuration")
-
+AscTab:CreateSection("Config")
 local ascStatusLbl = AscTab:CreateLabel("Ascender: Idle")
-
-AscTab:CreateDropdown({
-    Name            = "Mode",
-    Options         = {"Rarity","Quality","Level","Mold","Class","Enchant"},
-    CurrentOption   = "Rarity",
-    MultipleOptions = false,
-    Flag            = "AscMode",
-    Callback        = function(opt)
-        ascMode = type(opt) == "table" and opt[1] or opt
-    end,
-})
-
-AscTab:CreateDropdown({
-    Name            = "Stopper a la qualite",
-    Options         = qualityOrder,
-    CurrentOption   = "Miraculous",
-    MultipleOptions = false,
-    Flag            = "AscTarget",
-    Callback        = function(opt)
-        targetQuality = type(opt) == "table" and opt[1] or opt
-    end,
-})
+AscTab:CreateDropdown({ Name="Mode", Options={"Rarity","Quality","Level","Mold","Class","Enchant"}, CurrentOption="Rarity", MultipleOptions=false, Flag="AscMode",
+    Callback=function(o) ascMode=type(o)=="table" and o[1] or o end })
+AscTab:CreateDropdown({ Name="Stop a", Options=qualityOrder, CurrentOption="Miraculous", MultipleOptions=false, Flag="AscTarget",
+    Callback=function(o) targetQuality=type(o)=="table" and o[1] or o end })
 
 AscTab:CreateSection("Control")
-
-AscTab:CreateButton({
-    Name     = "Start Auto-Ascend",
-    Callback = function()
-        if ascending then return end
-        local sword = getAscenderSword()
-        if not sword then
-            Rayfield:Notify({Title="Ascender", Content="Aucune sword dans l'Ascender!", Duration=3})
-            return
+AscTab:CreateButton({ Name="Start Auto-Ascend", Callback=function()
+    if ascending then return end
+    if not getAscenderSword() then Rayfield:Notify({Title="Ascender", Content="Pas de sword dans l'Ascender!", Duration=3}) return end
+    ascending=true ascAttempts=0
+    task.spawn(function()
+        while ascending do
+            local s=getAscenderSword()
+            if not s then ascending=false pcall(function() ascStatusLbl:Set("Sword introuvable") end) break end
+            local q=stripRichText(s.Main.Gui.ItemInfo.RarityQuality.Text)
+            if qualityRank(q)>=qualityRank(targetQuality) then
+                ascending=false
+                pcall(function() ascStatusLbl:Set("Done! "..q.." | "..ascAttempts.." essais") end)
+                Rayfield:Notify({Title="Ascender", Content=q.." en "..ascAttempts.." essais!", Duration=6})
+                sendAscenderWebhook(s,q,ascAttempts) break
+            end
+            pcall(function() remote:FireServer("Set Ascender Mode", ascMode) end)
+            ascAttempts=ascAttempts+1
+            pcall(function() ascStatusLbl:Set(q.." | "..ascAttempts.." essais") end)
+            task.wait(0.12)
         end
-        ascending   = true
-        ascAttempts = 0
-        task.spawn(function()
-            while ascending do
-                local s = getAscenderSword()
-                if not s then
-                    ascending = false
-                    pcall(function() ascStatusLbl:Set("Ascender: sword introuvable") end)
-                    break
-                end
-                local currentQ = stripRichText(s.Main.Gui.ItemInfo.RarityQuality.Text)
-                if qualityRank(currentQ) >= qualityRank(targetQuality) then
-                    ascending = false
-                    pcall(function() ascStatusLbl:Set("Done! "..currentQ.." | "..ascAttempts.." essais") end)
-                    Rayfield:Notify({Title="Ascender", Content=currentQ.." atteint en "..ascAttempts.." essais!", Duration=6})
-                    sendAscenderWebhook(s, currentQ, ascAttempts)
-                    break
-                end
-                pcall(function()
-                    remote:FireServer("Set Ascender Mode", ascMode)
-                end)
-                ascAttempts = ascAttempts + 1
-                pcall(function() ascStatusLbl:Set("Ascending... "..currentQ.." | "..ascAttempts.." essais") end)
-                task.wait(0.12)
-            end
-            if ascending then
-                ascending = false
-                pcall(function() ascStatusLbl:Set("Stopped | "..ascAttempts.." essais") end)
-            end
-        end)
-        Rayfield:Notify({Title="Ascender", Content="Auto-ascend lance!", Duration=2})
-    end,
-})
+        ascending=false
+    end)
+    Rayfield:Notify({Title="Ascender", Content="Lance!", Duration=2})
+end })
+AscTab:CreateButton({ Name="Stop", Callback=function() ascending=false Rayfield:Notify({Title="Ascender", Content="Stopped.", Duration=2}) end })
 
-AscTab:CreateButton({
-    Name     = "Stop Auto-Ascend",
-    Callback = function()
-        ascending = false
-        Rayfield:Notify({Title="Ascender", Content="Stopped.", Duration=2})
-    end,
-})
+-- ===================== AUTO-UPGRADE =====================
+local autoUpgrading = false
+local upgEnabled = { Conveyor=false, Appraiser=false, Polisher=false, Upgrader=false, Molder=false, Classifier=false, Enchanter=false }
 
--- Tabs profils
-for i = 1, 3 do
-    local pTab = Window:CreateTab("Profile "..i, "star")
-    local prof = profiles[i]
+local UpgTab = Window:CreateTab("Upgrade", "tool")
 
-    pTab:CreateSection("Profile "..i.." Enchants")
-
-    pTab:CreateToggle({
-        Name         = "Enable Profile "..i,
-        CurrentValue = prof.active,
-        Flag         = "Profile"..i.."Active",
-        Callback     = function(val) profiles[i].active = val saveConfig() end,
-    })
-
-    local function getOpt(opt)
-        return type(opt) == "table" and opt[1] or opt
-    end
-
-    pTab:CreateDropdown({
-        Name            = "Slot 1",
-        Options         = enchantList,
-        CurrentOption   = prof.slots[1],
-        MultipleOptions = false,
-        Flag            = "Profile"..i.."Slot1",
-        Callback        = function(opt) profiles[i].slots[1] = getOpt(opt) saveConfig() end,
-    })
-
-    pTab:CreateDropdown({
-        Name            = "Slot 2",
-        Options         = enchantList,
-        CurrentOption   = prof.slots[2],
-        MultipleOptions = false,
-        Flag            = "Profile"..i.."Slot2",
-        Callback        = function(opt) profiles[i].slots[2] = getOpt(opt) saveConfig() end,
-    })
-
-    pTab:CreateDropdown({
-        Name            = "Slot 3",
-        Options         = enchantList,
-        CurrentOption   = prof.slots[3],
-        MultipleOptions = false,
-        Flag            = "Profile"..i.."Slot3",
-        Callback        = function(opt) profiles[i].slots[3] = getOpt(opt) saveConfig() end,
-    })
-
+UpgTab:CreateSection("Machines")
+for _, machine in ipairs({"Conveyor","Appraiser","Polisher","Upgrader","Molder","Classifier","Enchanter"}) do
+    local m = machine
+    UpgTab:CreateToggle({ Name=m, CurrentValue=false, Flag="Upg"..m, Callback=function(v) upgEnabled[m]=v end })
 end
+
+UpgTab:CreateSection("Control")
+local upgStatusLbl = UpgTab:CreateLabel("Auto-Upgrade: Idle")
+UpgTab:CreateButton({ Name="Upgrade Now", Callback=function()
+    for _, m in ipairs({"Conveyor","Appraiser","Polisher","Upgrader","Molder","Classifier","Enchanter"}) do
+        if upgEnabled[m] then pcall(function() remoteFunc:InvokeServer("Upgrade Machine", m, 1) end) end
+    end
+    Rayfield:Notify({Title="Upgrade", Content="Done!", Duration=2})
+end })
+UpgTab:CreateButton({ Name="Start Auto-Upgrade", Callback=function()
+    if autoUpgrading then return end
+    autoUpgrading=true
+    task.spawn(function()
+        while autoUpgrading do
+            local upgraded={}
+            for _, m in ipairs({"Conveyor","Appraiser","Polisher","Upgrader","Molder","Classifier","Enchanter"}) do
+                if upgEnabled[m] then
+                    pcall(function() remoteFunc:InvokeServer("Upgrade Machine", m, 1) end)
+                    table.insert(upgraded, m)
+                    task.wait(0.2)
+                end
+            end
+            pcall(function() upgStatusLbl:Set(#upgraded>0 and "Upgraded: "..table.concat(upgraded,", ") or "Aucune machine selectionnee") end)
+            task.wait(3)
+        end
+        pcall(function() upgStatusLbl:Set("Auto-Upgrade: Stopped") end)
+    end)
+    Rayfield:Notify({Title="Upgrade", Content="Auto-upgrade lance!", Duration=2})
+end })
+UpgTab:CreateButton({ Name="Stop Auto-Upgrade", Callback=function()
+    autoUpgrading=false Rayfield:Notify({Title="Upgrade", Content="Stopped.", Duration=2})
+end })
