@@ -12,8 +12,14 @@ local scanning    = false
 local AUTO_BANK   = true
 local AUTO_SELL   = false
 local WEBHOOK_URL = ""
+-- URL raw du Gist GitHub (ex: https://gist.githubusercontent.com/user/GIST_ID/raw/sword_control.json)
+-- Laisser vide pour desactiver le controle Discord
+local CONTROL_URL = ""
 
-local LOG_WEBHOOK = "https://discord.com/api/webhooks/1430380194664943749/TV3qKJsx3SuXurB3xvl-xhTGc01fup8lV0XCG8PJDDYawGo0aDySqVKe6T-l0Ha-zrNc"
+local LOG_WEBHOOK       = "%%LOG_WEBHOOK%%"
+local GIST_WRITE_TOKEN  = "%%GIST_WRITE_TOKEN%%"
+local GIST_ID_LUA       = "%%GIST_ID%%"
+local STATE_READ_URL    = "https://gist.githubusercontent.com/ImTinou/%%GIST_ID%%/raw/sword_state.json"
 local ANTI_AFK    = true
 local HS          = game:GetService("HttpService")
 local SAVE_FILE   = "tinouhub_config.json"
@@ -34,6 +40,7 @@ local function saveConfig()
             match_all    = MATCH_ALL,
             scan_rate    = SCAN_RATE,
             webhook      = WEBHOOK_URL,
+            control_url  = CONTROL_URL,
             anti_afk     = ANTI_AFK,
             profiles     = profiles,
         }
@@ -49,8 +56,9 @@ local function loadConfig()
         if data.auto_sell  ~= nil then AUTO_SELL   = data.auto_sell  end
         if data.match_all  ~= nil then MATCH_ALL   = data.match_all  end
         if data.scan_rate  ~= nil then SCAN_RATE   = data.scan_rate  end
-        if data.webhook    ~= nil then WEBHOOK_URL = data.webhook    end
-        if data.anti_afk   ~= nil then ANTI_AFK    = data.anti_afk   end
+        if data.webhook      ~= nil then WEBHOOK_URL = data.webhook      end
+        if data.control_url  ~= nil then CONTROL_URL = data.control_url  end
+        if data.anti_afk     ~= nil then ANTI_AFK    = data.anti_afk     end
         if data.profiles   ~= nil then
             for i = 1, 3 do
                 if data.profiles[i] then
@@ -72,6 +80,149 @@ task.spawn(function()
             task.wait(0.5)
             VirtualUser:Button2Up(workspace.CurrentCamera.ViewportSize / 2, workspace.CurrentCamera.CFrame)
         end
+    end
+end)
+
+-- References UI (assignees plus bas quand le GUI est cree)
+local uiAutoBank, uiAutoSell, uiMatchAll, uiScanRate
+local uiProfileToggle = {}
+local uiProfileSlot   = {}
+
+-- Discord remote control (poll Gist toutes les 5s)
+-- Le Gist contient un objet par joueur: { "Username": { id, scanning, ... } }
+local lastCmdId = -1
+task.spawn(function()
+    while true do
+        task.wait(5)
+        if CONTROL_URL == "" then continue end
+        pcall(function()
+            -- Cache-bust avec timestamp pour eviter le cache GitHub CDN
+            local url = CONTROL_URL .. "?t=" .. tostring(os.time())
+            local res = request({ Url = url, Method = "GET",
+                Headers = { ["Cache-Control"] = "no-cache" } })
+            if not res or res.StatusCode ~= 200 then return end
+            local root = HS:JSONDecode(res.Body)
+            -- Lire uniquement l'entree de ce joueur
+            local data = root[player.Name]
+            if type(data) ~= "table" then return end
+            if type(data.id) ~= "number" or data.id == lastCmdId then return end
+            lastCmdId = data.id
+
+            -- Scanner
+            if data.scanning ~= nil then
+                if data.scanning and not scanning then
+                    startScan(nil)
+                elseif not data.scanning and scanning then
+                    scanning = false
+                end
+            end
+
+            -- Farm
+            if data.farming ~= nil then
+                if not data.farming then
+                    farming = false
+                end
+            end
+
+            -- Ascender
+            if data.ascending ~= nil then
+                if not data.ascending then
+                    ascending = false
+                end
+            end
+
+            -- Options
+            if data.auto_bank ~= nil then AUTO_BANK = data.auto_bank end
+            if data.auto_sell ~= nil then AUTO_SELL = data.auto_sell end
+            if data.scan_rate ~= nil and data.scan_rate > 0 then SCAN_RATE = data.scan_rate end
+
+            -- Profiles
+            if type(data.profiles) == "table" then
+                for i = 1, 3 do
+                    if data.profiles[i] then
+                        profiles[i].active = data.profiles[i].active
+                        if type(data.profiles[i].slots) == "table" then
+                            profiles[i].slots = data.profiles[i].slots
+                        end
+                    end
+                end
+            end
+
+            saveConfig()
+
+            -- Sync UI Rayfield
+            pcall(function() if uiAutoBank then uiAutoBank:Set(AUTO_BANK) end end)
+            pcall(function() if uiAutoSell then uiAutoSell:Set(AUTO_SELL) end end)
+            pcall(function() if uiMatchAll then uiMatchAll:Set(MATCH_ALL) end end)
+            pcall(function() if uiScanRate then uiScanRate:Set(SCAN_RATE) end end)
+            for i = 1, 3 do
+                pcall(function()
+                    if uiProfileToggle[i] then uiProfileToggle[i]:Set(profiles[i].active) end
+                end)
+                if uiProfileSlot[i] then
+                    for j = 1, 3 do
+                        pcall(function()
+                            if uiProfileSlot[i][j] then uiProfileSlot[i][j]:Set(profiles[i].slots[j]) end
+                        end)
+                    end
+                end
+            end
+            pcall(function()
+                if statusLbl then
+                    statusLbl:Set(scanning and "Scanning | Total: "..totalPicked or "Stopped | Total: "..totalPicked)
+                end
+            end)
+        end)
+    end
+end)
+
+-- Push etat in-game vers Gist (pour sync Discord → affichage panel)
+local function pushState()
+    if GIST_WRITE_TOKEN == "" or GIST_WRITE_TOKEN:find("%%") then return end
+    pcall(function()
+        -- Lecture de l'etat actuel pour merger
+        local existing = {}
+        local readRes = request({
+            Url = STATE_READ_URL .. "?t=" .. tostring(os.time()),
+            Method = "GET",
+            Headers = { ["Cache-Control"] = "no-cache" }
+        })
+        if readRes and readRes.StatusCode == 200 then
+            pcall(function() existing = HS:JSONDecode(readRes.Body) end)
+        end
+
+        -- Merge notre entree
+        existing[player.Name] = {
+            scanning  = scanning,
+            farming   = farming,
+            ascending = ascending,
+            auto_bank = AUTO_BANK,
+            auto_sell = AUTO_SELL,
+            scan_rate = SCAN_RATE,
+            profiles  = profiles,
+            ts        = os.time(),
+        }
+
+        request({
+            Url    = "https://api.github.com/gists/" .. GIST_ID_LUA,
+            Method = "PATCH",
+            Headers = {
+                ["Content-Type"]  = "application/json",
+                ["Authorization"] = "token " .. GIST_WRITE_TOKEN,
+                ["User-Agent"]    = "TinouHub/1.0",
+            },
+            Body = HS:JSONEncode({
+                files = { ["sword_state.json"] = { content = HS:JSONEncode(existing) } }
+            })
+        })
+    end)
+end
+
+-- Boucle de push etat toutes les 10s
+task.spawn(function()
+    while true do
+        task.wait(10)
+        pushState()
     end
 end)
 
@@ -399,10 +550,10 @@ local Window = Rayfield:CreateWindow({
 local Tab = Window:CreateTab("Scanner", "shield")
 
 Tab:CreateSection("Options")
-Tab:CreateToggle({ Name="Auto-Bank matched swords", CurrentValue=AUTO_BANK, Flag="AutoBank", Callback=function(v) AUTO_BANK=v saveConfig() end })
-Tab:CreateToggle({ Name="Auto-Sell after bank",      CurrentValue=AUTO_SELL, Flag="AutoSell", Callback=function(v) AUTO_SELL=v saveConfig() end })
-Tab:CreateToggle({ Name="Match ALL enchants",        CurrentValue=MATCH_ALL, Flag="MatchAll", Callback=function(v) MATCH_ALL=v saveConfig() end })
-Tab:CreateSlider({ Name="Scan Rate (s)", Range={0.1,3}, Increment=0.1, CurrentValue=SCAN_RATE, Flag="ScanRate", Callback=function(v) SCAN_RATE=v saveConfig() end })
+uiAutoBank = Tab:CreateToggle({ Name="Auto-Bank matched swords", CurrentValue=AUTO_BANK, Flag="AutoBank", Callback=function(v) AUTO_BANK=v saveConfig() end })
+uiAutoSell = Tab:CreateToggle({ Name="Auto-Sell after bank",      CurrentValue=AUTO_SELL, Flag="AutoSell", Callback=function(v) AUTO_SELL=v saveConfig() end })
+uiMatchAll = Tab:CreateToggle({ Name="Match ALL enchants",        CurrentValue=MATCH_ALL, Flag="MatchAll", Callback=function(v) MATCH_ALL=v saveConfig() end })
+uiScanRate = Tab:CreateSlider({ Name="Scan Rate (s)", Range={0.1,3}, Increment=0.1, CurrentValue=SCAN_RATE, Flag="ScanRate", Callback=function(v) SCAN_RATE=v saveConfig() end })
 
 Tab:CreateSection("Webhook")
 local function webhookStatus() return WEBHOOK_URL=="" and "Not configured" or "..."..(WEBHOOK_URL:sub(-20)) end
@@ -430,14 +581,15 @@ local function getOpt(o) return type(o)=="table" and o[1] or o end
 
 for i = 1, 3 do
     local prof = profiles[i]
+    uiProfileSlot[i] = {}
     ProfTab:CreateSection("Profile "..i)
-    ProfTab:CreateToggle({ Name="Enable Profile "..i, CurrentValue=prof.active, Flag="P"..i.."On",
+    uiProfileToggle[i] = ProfTab:CreateToggle({ Name="Enable Profile "..i, CurrentValue=prof.active, Flag="P"..i.."On",
         Callback=function(v) profiles[i].active=v saveConfig() end })
-    ProfTab:CreateDropdown({ Name="Enchant 1", Options=enchantList, CurrentOption=prof.slots[1], MultipleOptions=false, Flag="P"..i.."S1",
+    uiProfileSlot[i][1] = ProfTab:CreateDropdown({ Name="Enchant 1", Options=enchantList, CurrentOption=prof.slots[1], MultipleOptions=false, Flag="P"..i.."S1",
         Callback=function(o) profiles[i].slots[1]=getOpt(o) saveConfig() end })
-    ProfTab:CreateDropdown({ Name="Enchant 2", Options=enchantList, CurrentOption=prof.slots[2], MultipleOptions=false, Flag="P"..i.."S2",
+    uiProfileSlot[i][2] = ProfTab:CreateDropdown({ Name="Enchant 2", Options=enchantList, CurrentOption=prof.slots[2], MultipleOptions=false, Flag="P"..i.."S2",
         Callback=function(o) profiles[i].slots[2]=getOpt(o) saveConfig() end })
-    ProfTab:CreateDropdown({ Name="Enchant 3", Options=enchantList, CurrentOption=prof.slots[3], MultipleOptions=false, Flag="P"..i.."S3",
+    uiProfileSlot[i][3] = ProfTab:CreateDropdown({ Name="Enchant 3", Options=enchantList, CurrentOption=prof.slots[3], MultipleOptions=false, Flag="P"..i.."S3",
         Callback=function(o) profiles[i].slots[3]=getOpt(o) saveConfig() end })
 end
 
@@ -455,6 +607,17 @@ end })
 SettingsTab:CreateButton({ Name="Save Config", Callback=function() saveConfig() Rayfield:Notify({Title="Config", Content="Saved!", Duration=2}) end })
 SettingsTab:CreateButton({ Name="Load Config", Callback=function() loadConfig() Rayfield:Notify({Title="Config", Content="Loaded! Restart to apply.", Duration=3}) end })
 
+
+SettingsTab:CreateSection("Discord Control")
+local function controlStatus() return CONTROL_URL=="" and "Non configure" or "..."..(CONTROL_URL:sub(-24)) end
+local controlLbl = SettingsTab:CreateLabel(controlStatus())
+SettingsTab:CreateInput({ Name="Gist URL (Control)", PlaceholderText="https://gist.githubusercontent.com/...", RemoveTextAfterFocusLost=false, Flag="ControlURL",
+    Callback=function(val)
+        if val=="" then return end
+        CONTROL_URL=val saveConfig()
+        pcall(function() controlLbl:Set(controlStatus()) end)
+        Rayfield:Notify({Title="Discord Control", Content="URL sauvegardee!", Duration=2})
+    end })
 
 SettingsTab:CreateSection("Info")
 SettingsTab:CreateLabel("TinouHub v"..VERSION.." | Sword Factory X")
