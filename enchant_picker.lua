@@ -103,7 +103,7 @@ local statusLbl
 local lastCmdId = -1
 task.spawn(function()
     while true do
-        task.wait(5)
+        task.wait(15)
         if CONTROL_URL == "" then continue end
         pcall(function()
             -- API GitHub (pas de cache CDN contrairement au raw)
@@ -246,10 +246,10 @@ local function pushState()
     end)
 end
 
--- Boucle de push etat toutes les 10s
+-- Boucle de push etat toutes les 60s
 task.spawn(function()
     while true do
-        task.wait(10)
+        task.wait(60)
         pushState()
     end
 end)
