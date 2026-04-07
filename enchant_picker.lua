@@ -102,12 +102,15 @@ task.spawn(function()
         task.wait(5)
         if CONTROL_URL == "" then continue end
         pcall(function()
-            -- Cache-bust avec timestamp pour eviter le cache GitHub CDN
-            local url = CONTROL_URL .. "?t=" .. tostring(os.time())
+            -- API GitHub (pas de cache CDN contrairement au raw)
+            local url = "https://api.github.com/gists/" .. GIST_ID_LUA
             local res = request({ Url = url, Method = "GET",
-                Headers = { ["Cache-Control"] = "no-cache" } })
+                Headers = { ["Cache-Control"] = "no-cache", ["User-Agent"] = "TinouHub/1.0" } })
             if not res or res.StatusCode ~= 200 then return end
-            local root = HS:JSONDecode(res.Body)
+            local gist = HS:JSONDecode(res.Body)
+            local fileContent = gist.files and gist.files["sword_control.json"] and gist.files["sword_control.json"].content
+            if not fileContent then return end
+            local root = HS:JSONDecode(fileContent)
             -- Lire uniquement l'entree de ce joueur
             local data = root[player.Name]
             if type(data) ~= "table" then return end
@@ -186,15 +189,19 @@ end)
 local function pushState()
     if GIST_WRITE_TOKEN == "" or GIST_WRITE_TOKEN:find("%%") then return end
     pcall(function()
-        -- Lecture de l'etat actuel pour merger
+        -- Lecture de l'etat actuel via API (pas de cache)
         local existing = {}
         local readRes = request({
-            Url = STATE_READ_URL .. "?t=" .. tostring(os.time()),
+            Url = "https://api.github.com/gists/" .. GIST_ID_LUA,
             Method = "GET",
-            Headers = { ["Cache-Control"] = "no-cache" }
+            Headers = { ["Cache-Control"] = "no-cache", ["User-Agent"] = "TinouHub/1.0" }
         })
         if readRes and readRes.StatusCode == 200 then
-            pcall(function() existing = HS:JSONDecode(readRes.Body) end)
+            pcall(function()
+                local g = HS:JSONDecode(readRes.Body)
+                local c = g.files and g.files["sword_state.json"] and g.files["sword_state.json"].content
+                if c then existing = HS:JSONDecode(c) end
+            end)
         end
 
         -- Merge notre entree
