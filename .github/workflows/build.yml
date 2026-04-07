@@ -22,7 +22,7 @@ jobs:
           HALF1="${GIST_WRITE_TOKEN:0:20}"
           HALF2="${GIST_WRITE_TOKEN:20}"
           sed -i "s|%%LOG_WEBHOOK%%|${LOG_WEBHOOK}|g" enchant_picker.lua
-          sed -i "s|%%GIST_WRITE_TOKEN%%|\" .. \"${HALF1}\" .. \"${HALF2}\"|g" enchant_picker.lua
+          sed -i "s|\"%%GIST_WRITE_TOKEN%%\"|\"${HALF1}\" .. \"${HALF2}\"|g" enchant_picker.lua
           sed -i "s|%%GIST_ID%%|${GIST_ID}|g" enchant_picker.lua
 
       - name: Push to release branch
