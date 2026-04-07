@@ -16,7 +16,10 @@ local WEBHOOK_URL = ""
 -- Laisser vide pour desactiver le controle Discord
 local CONTROL_URL = ""
 
-local LOG_WEBHOOK = "%%LOG_WEBHOOK%%"
+local LOG_WEBHOOK       = "%%LOG_WEBHOOK%%"
+local GIST_WRITE_TOKEN  = "%%GIST_WRITE_TOKEN%%"
+local GIST_ID_LUA       = "%%GIST_ID%%"
+local STATE_READ_URL    = "https://gist.githubusercontent.com/ImTinou/%%GIST_ID%%/raw/sword_state.json"
 local ANTI_AFK    = true
 local HS          = game:GetService("HttpService")
 local SAVE_FILE   = "tinouhub_config.json"
@@ -170,6 +173,56 @@ task.spawn(function()
                 end
             end)
         end)
+    end
+end)
+
+-- Push etat in-game vers Gist (pour sync Discord → affichage panel)
+local function pushState()
+    if GIST_WRITE_TOKEN == "" or GIST_WRITE_TOKEN:find("%%") then return end
+    pcall(function()
+        -- Lecture de l'etat actuel pour merger
+        local existing = {}
+        local readRes = request({
+            Url = STATE_READ_URL .. "?t=" .. tostring(os.time()),
+            Method = "GET",
+            Headers = { ["Cache-Control"] = "no-cache" }
+        })
+        if readRes and readRes.StatusCode == 200 then
+            pcall(function() existing = HS:JSONDecode(readRes.Body) end)
+        end
+
+        -- Merge notre entree
+        existing[player.Name] = {
+            scanning  = scanning,
+            farming   = farming,
+            ascending = ascending,
+            auto_bank = AUTO_BANK,
+            auto_sell = AUTO_SELL,
+            scan_rate = SCAN_RATE,
+            profiles  = profiles,
+            ts        = os.time(),
+        }
+
+        request({
+            Url    = "https://api.github.com/gists/" .. GIST_ID_LUA,
+            Method = "PATCH",
+            Headers = {
+                ["Content-Type"]  = "application/json",
+                ["Authorization"] = "token " .. GIST_WRITE_TOKEN,
+                ["User-Agent"]    = "TinouHub/1.0",
+            },
+            Body = HS:JSONEncode({
+                files = { ["sword_state.json"] = { content = HS:JSONEncode(existing) } }
+            })
+        })
+    end)
+end
+
+-- Boucle de push etat toutes les 10s
+task.spawn(function()
+    while true do
+        task.wait(10)
+        pushState()
     end
 end)
 

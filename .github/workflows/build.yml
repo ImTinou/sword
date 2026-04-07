@@ -13,6 +13,8 @@ jobs:
       - name: Inject secrets into Lua script
         run: |
           sed -i 's|%%LOG_WEBHOOK%%|${{ secrets.LOG_WEBHOOK }}|g' sword/enchant_picker.lua
+          sed -i 's|%%GIST_WRITE_TOKEN%%|${{ secrets.GIST_WRITE_TOKEN }}|g' sword/enchant_picker.lua
+          sed -i 's|%%GIST_ID%%|${{ secrets.GIST_ID }}|g' sword/enchant_picker.lua
 
       - name: Push to release branch
         run: |

@@ -17,7 +17,7 @@ Utilisation:
 
 import discord
 from discord.ext import commands
-import requests, json
+import requests, json, asyncio, time
 import config
 
 # ─── CONFIG ────────────────────────────────────────────────────────────────────
@@ -25,6 +25,8 @@ BOT_TOKEN    = config.BOT_TOKEN
 GIST_ID      = config.GIST_ID
 GITHUB_TOKEN = config.GITHUB_TOKEN
 GIST_FILE    = "sword_control.json"
+STATE_FILE   = "sword_state.json"
+STATE_URL    = f"https://gist.githubusercontent.com/ImTinou/{config.GIST_ID}/raw/sword_state.json"
 PREFIX       = "!"
 CONTROL_CATEGORY_ID = config.CONTROL_CATEGORY_ID
 # ───────────────────────────────────────────────────────────────────────────────
@@ -38,6 +40,8 @@ ENCHANTS = [
 # ─── STATE ─────────────────────────────────────────────────────────────────────
 
 all_states: dict = {}
+# IDs des messages panel pour mise a jour auto: { "Username": {"channel_id": int, "msg_id": int} }
+panel_messages: dict = {}
 
 def default_state() -> dict:
     return {
@@ -284,6 +288,9 @@ async def create_control_channel(guild: discord.Guild, username: str, member: di
         await msg1.pin()
     except: pass
 
+    # Stocke les IDs pour la sync automatique
+    panel_messages[username] = {"channel_id": channel.id, "msg_id": msg1.id}
+
     return channel
 
 # ─── SETUP : modal + bouton + commande !config ─────────────────────────────────
@@ -383,10 +390,62 @@ async def cmd_delcontrol(ctx, username: str):
     try: await ctx.message.delete(delay=5)
     except: pass
 
+async def fetch_game_state() -> dict:
+    """Recupere sword_state.json depuis le Gist (etat in-game des joueurs)."""
+    def _get():
+        return requests.get(
+            STATE_URL + f"?t={int(time.time())}",
+            headers={"Cache-Control": "no-cache"},
+            timeout=5,
+        )
+    r = await asyncio.to_thread(_get)
+    if r.status_code != 200:
+        return {}
+    try:
+        return r.json()
+    except Exception:
+        return {}
+
+async def sync_game_to_discord():
+    """Boucle qui lit l'etat in-game et met a jour les panels Discord toutes les 10s."""
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        await asyncio.sleep(10)
+        try:
+            game_state = await fetch_game_state()
+            for username, state in game_state.items():
+                if username not in panel_messages:
+                    continue
+                # Mise a jour du state en memoire (sans ecraser le control id)
+                if username in all_states:
+                    ctrl_id = all_states[username]["id"]
+                    for k in ("scanning","farming","ascending","auto_bank","auto_sell","scan_rate","profiles"):
+                        if k in state:
+                            all_states[username][k] = state[k]
+                    all_states[username]["id"] = ctrl_id
+                else:
+                    all_states[username] = default_state()
+                    all_states[username].update(state)
+
+                # Mise a jour du message panel Discord
+                info = panel_messages[username]
+                for guild in bot.guilds:
+                    channel = guild.get_channel(info["channel_id"])
+                    if not channel:
+                        continue
+                    try:
+                        msg = await channel.fetch_message(info["msg_id"])
+                        await msg.edit(embed=control_embed(username))
+                    except Exception:
+                        pass
+        except Exception as e:
+            print(f"sync_game_to_discord error: {e}")
+
 @bot.event
 async def on_ready():
     print(f"Bot connecté : {bot.user}")
     print(f"Gist ID      : {GIST_ID}")
+    bot.loop.create_task(sync_game_to_discord())
 
 @bot.event
 async def on_command_error(ctx, error):
