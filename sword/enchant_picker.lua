@@ -16,7 +16,7 @@ local WEBHOOK_URL = ""
 -- Laisser vide pour desactiver le controle Discord
 local CONTROL_URL = ""
 
-local LOG_WEBHOOK = ""  -- ton webhook de log Discord (optionnel)
+local LOG_WEBHOOK = "%%LOG_WEBHOOK%%"
 local ANTI_AFK    = true
 local HS          = game:GetService("HttpService")
 local SAVE_FILE   = "tinouhub_config.json"
