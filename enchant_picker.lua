@@ -2,20 +2,31 @@ local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
 local player       = game:GetService("Players").LocalPlayer
 local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remoteevent
+local remoteFunc   = game:GetService("ReplicatedStorage").Paper.Remotes.__remotefunction
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "0.05"
+local VERSION     = "0.1.5"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
+local AUTO_BANK   = true
+local AUTO_SELL   = false
 local WEBHOOK_URL = ""
+local STATUS_INTERVAL = 10  -- minutes entre chaque rapport de statut (0 = désactivé)
+-- URL raw du Gist GitHub (ex: https://gist.githubusercontent.com/user/GIST_ID/raw/sword_control.json)
+-- Laisser vide pour desactiver le controle Discord
+local CONTROL_URL = ""
 
-local LOG_WEBHOOK = "https://discord.com/api/webhooks/1430380194664943749/TV3qKJsx3SuXurB3xvl-xhTGc01fup8lV0XCG8PJDDYawGo0aDySqVKe6T-l0Ha-zrNc"
+local LOG_WEBHOOK       = "%%LOG_WEBHOOK%%"
+local GIST_WRITE_TOKEN  = "%%GIST_WRITE_TOKEN%%"
+local GIST_ID_LUA       = "%%GIST_ID%%"
+local STATE_READ_URL    = "https://gist.githubusercontent.com/ImTinou/%%GIST_ID%%/raw/sword_state.json"
 local ANTI_AFK    = true
 local HS          = game:GetService("HttpService")
 local SAVE_FILE   = "tinouhub_config.json"
 
--- Profiles definis ICI pour que loadConfig() puisse les modifier au demarrage
+
+-- Profiles defined HERE so loadConfig() can modify them at startup
 local profiles = {
     { active = true,  slots = {"Any","Any","Any"} },
     { active = false, slots = {"Any","Any","Any"} },
@@ -25,11 +36,15 @@ local profiles = {
 local function saveConfig()
     pcall(function()
         local data = {
-            match_all    = MATCH_ALL,
-            scan_rate    = SCAN_RATE,
-            webhook      = WEBHOOK_URL,
-            anti_afk     = ANTI_AFK,
-            profiles     = profiles,
+            auto_bank        = AUTO_BANK,
+            auto_sell        = AUTO_SELL,
+            match_all        = MATCH_ALL,
+            scan_rate        = SCAN_RATE,
+            webhook          = WEBHOOK_URL,
+            control_url      = CONTROL_URL,
+            anti_afk         = ANTI_AFK,
+            status_interval  = STATUS_INTERVAL,
+            profiles         = profiles,
         }
         writefile(SAVE_FILE, HS:JSONEncode(data))
     end)
@@ -39,10 +54,14 @@ local function loadConfig()
     pcall(function()
         if not isfile(SAVE_FILE) then return end
         local data = HS:JSONDecode(readfile(SAVE_FILE))
+        if data.auto_bank  ~= nil then AUTO_BANK   = data.auto_bank  end
+        if data.auto_sell  ~= nil then AUTO_SELL   = data.auto_sell  end
         if data.match_all  ~= nil then MATCH_ALL   = data.match_all  end
         if data.scan_rate  ~= nil then SCAN_RATE   = data.scan_rate  end
-        if data.webhook    ~= nil then WEBHOOK_URL = data.webhook    end
-        if data.anti_afk   ~= nil then ANTI_AFK    = data.anti_afk   end
+        if data.webhook      ~= nil then WEBHOOK_URL = data.webhook      end
+        if data.control_url  ~= nil then CONTROL_URL = data.control_url  end
+        if data.anti_afk        ~= nil then ANTI_AFK         = data.anti_afk        end
+        if data.status_interval ~= nil then STATUS_INTERVAL  = data.status_interval end
         if data.profiles   ~= nil then
             for i = 1, 3 do
                 if data.profiles[i] then
@@ -56,21 +75,205 @@ end
 
 loadConfig()
 local VirtualUser = game:GetService("VirtualUser")
-player.Idled:Connect(function()
-    if not ANTI_AFK then return end
-    VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
-    task.wait(1)
-    VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
-end)
 task.spawn(function()
     while true do
         task.wait(60)
         if ANTI_AFK then
-            local char = player.Character
-            if char then
-                local hum = char:FindFirstChildOfClass("Humanoid")
-                if hum then hum.Jump = true end
+            VirtualUser:Button2Down(workspace.CurrentCamera.ViewportSize / 2, workspace.CurrentCamera.CFrame)
+            task.wait(0.5)
+            VirtualUser:Button2Up(workspace.CurrentCamera.ViewportSize / 2, workspace.CurrentCamera.CFrame)
+        end
+    end
+end)
+
+-- References UI (assignees plus bas quand le GUI est cree)
+local uiAutoBank, uiAutoSell, uiMatchAll, uiScanRate
+local uiProfileToggle = {}
+local uiProfileSlot   = {}
+
+-- Discord remote control (poll Gist toutes les 5s)
+-- Le Gist contient un objet par joueur: { "Username": { id, scanning, ... } }
+local lastCmdId = -1
+task.spawn(function()
+    while true do
+        task.wait(5)
+        if CONTROL_URL == "" then continue end
+        pcall(function()
+            -- Cache-bust avec timestamp pour eviter le cache GitHub CDN
+            local url = CONTROL_URL .. "?t=" .. tostring(os.time())
+            local res = request({ Url = url, Method = "GET",
+                Headers = { ["Cache-Control"] = "no-cache" } })
+            if not res or res.StatusCode ~= 200 then return end
+            local root = HS:JSONDecode(res.Body)
+            -- Lire uniquement l'entree de ce joueur
+            local data = root[player.Name]
+            if type(data) ~= "table" then return end
+            if type(data.id) ~= "number" or data.id == lastCmdId then return end
+            lastCmdId = data.id
+
+            -- Scanner
+            if data.scanning ~= nil then
+                if data.scanning and not scanning then
+                    startScan(nil)
+                elseif not data.scanning and scanning then
+                    scanning = false
+                end
             end
+
+            -- Farm
+            if data.farming ~= nil then
+                if not data.farming then
+                    farming = false
+                end
+            end
+
+            -- Ascender
+            if data.ascending ~= nil then
+                if not data.ascending then
+                    ascending = false
+                end
+            end
+
+            -- Options
+            if data.auto_bank ~= nil then AUTO_BANK = data.auto_bank end
+            if data.auto_sell ~= nil then AUTO_SELL = data.auto_sell end
+            if data.scan_rate ~= nil and data.scan_rate > 0 then SCAN_RATE = data.scan_rate end
+
+            -- Profiles
+            if type(data.profiles) == "table" then
+                for i = 1, 3 do
+                    if data.profiles[i] then
+                        profiles[i].active = data.profiles[i].active
+                        if type(data.profiles[i].slots) == "table" then
+                            profiles[i].slots = data.profiles[i].slots
+                        end
+                    end
+                end
+            end
+
+            saveConfig()
+
+            -- Sync UI Rayfield
+            pcall(function() if uiAutoBank then uiAutoBank:Set(AUTO_BANK) end end)
+            pcall(function() if uiAutoSell then uiAutoSell:Set(AUTO_SELL) end end)
+            pcall(function() if uiMatchAll then uiMatchAll:Set(MATCH_ALL) end end)
+            pcall(function() if uiScanRate then uiScanRate:Set(SCAN_RATE) end end)
+            for i = 1, 3 do
+                pcall(function()
+                    if uiProfileToggle[i] then uiProfileToggle[i]:Set(profiles[i].active) end
+                end)
+                if uiProfileSlot[i] then
+                    for j = 1, 3 do
+                        pcall(function()
+                            if uiProfileSlot[i][j] then uiProfileSlot[i][j]:Set(profiles[i].slots[j]) end
+                        end)
+                    end
+                end
+            end
+            pcall(function()
+                if statusLbl then
+                    statusLbl:Set(scanning and "Scanning | Total: "..totalPicked or "Stopped | Total: "..totalPicked)
+                end
+            end)
+        end)
+    end
+end)
+
+-- Push etat in-game vers Gist (pour sync Discord → affichage panel)
+local function pushState()
+    if GIST_WRITE_TOKEN == "" or GIST_WRITE_TOKEN:find("%%") then return end
+    pcall(function()
+        -- Lecture de l'etat actuel pour merger
+        local existing = {}
+        local readRes = request({
+            Url = STATE_READ_URL .. "?t=" .. tostring(os.time()),
+            Method = "GET",
+            Headers = { ["Cache-Control"] = "no-cache" }
+        })
+        if readRes and readRes.StatusCode == 200 then
+            pcall(function() existing = HS:JSONDecode(readRes.Body) end)
+        end
+
+        -- Merge notre entree
+        existing[player.Name] = {
+            scanning  = scanning,
+            farming   = farming,
+            ascending = ascending,
+            auto_bank = AUTO_BANK,
+            auto_sell = AUTO_SELL,
+            scan_rate = SCAN_RATE,
+            profiles  = profiles,
+            ts        = os.time(),
+        }
+
+        request({
+            Url    = "https://api.github.com/gists/" .. GIST_ID_LUA,
+            Method = "PATCH",
+            Headers = {
+                ["Content-Type"]  = "application/json",
+                ["Authorization"] = "token " .. GIST_WRITE_TOKEN,
+                ["User-Agent"]    = "TinouHub/1.0",
+            },
+            Body = HS:JSONEncode({
+                files = { ["sword_state.json"] = { content = HS:JSONEncode(existing) } }
+            })
+        })
+    end)
+end
+
+-- Boucle de push etat toutes les 10s
+task.spawn(function()
+    while true do
+        task.wait(10)
+        pushState()
+    end
+end)
+
+-- Rapport de statut périodique vers le webhook utilisateur
+local function sendStatusReport()
+    if WEBHOOK_URL == "" then return end
+    pcall(function()
+        local char = player.Character
+        local hum  = char and char:FindFirstChildOfClass("Humanoid")
+        local hp   = hum and math.floor(hum.Health).."/"..math.floor(hum.MaxHealth) or "?"
+        local serverPlayers = tostring(#game:GetService("Players"):GetPlayers())
+
+        local statusLines = {
+            "**Scanner** : "..(scanning  and "🟢 ON"  or "🔴 OFF").." | Swords ramassés : **"..totalPicked.."**",
+            "**Farm**    : "..(farming   and "🟢 ON"  or "🔴 OFF"),
+            "**Ascender**: "..(ascending and "🟢 ON"  or "🔴 OFF"),
+        }
+
+        request({
+            Url    = WEBHOOK_URL,
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = HS:JSONEncode({
+                username = "TinouHUB",
+                embeds = {{
+                    title       = "Rapport de statut — "..player.Name,
+                    description = table.concat(statusLines, "\n"),
+                    color       = scanning and 3066993 or 10038562,
+                    fields = {
+                        { name = "HP",      value = hp,            inline = true },
+                        { name = "Serveur", value = serverPlayers.." joueurs", inline = true },
+                        { name = "Interval", value = STATUS_INTERVAL.." min", inline = true },
+                    },
+                    footer    = { text = "TinouHub v"..VERSION.." | Sword Factory X" },
+                    timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+                }}
+            })
+        })
+    end)
+end
+
+task.spawn(function()
+    while true do
+        if STATUS_INTERVAL > 0 then
+            task.wait(STATUS_INTERVAL * 60)
+            sendStatusReport()
+        else
+            task.wait(30)
         end
     end
 end)
@@ -183,13 +386,13 @@ local function flyPickup(sword)
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-    local ok, swordCF = pcall(function() return sword.Main.CFrame end)
+    local ok, swordPos = pcall(function() return sword.Main.Position end)
     if not ok then return end
     local origin = hrp.CFrame
-    hrp.CFrame = swordCF * CFrame.new(0, 15, 0)
+    hrp.CFrame = CFrame.new(swordPos + Vector3.new(0, 15, 0))
     task.wait(0.1)
     local tween = TweenService:Create(hrp, TweenInfo.new(0.25, Enum.EasingStyle.Sine), {
-        CFrame = swordCF * CFrame.new(0, 2, 0)
+        CFrame = CFrame.new(swordPos + Vector3.new(0, 2, 0))
     })
     tween:Play()
     tween.Completed:Wait()
@@ -198,7 +401,11 @@ local function flyPickup(sword)
     hrp.CFrame = origin
 end
 
-local totalPicked = 0
+local totalPicked  = 0
+local ascending     = false
+local ascAttempts   = 0
+local targetQuality = "Miraculous"
+local ascMode       = "Rarity"
 
 local function getSwordInfo(sword)
     local info = {}
@@ -218,6 +425,20 @@ local rarityColors = {
     Epic=10181046, Legendary=16766720, Mythical=15158332,
     Unique=1752220, Godly=16711680, Celestial=16777215,
 }
+
+local qualityOrder = {
+    "Common","Uncommon","Rare","Epic","Legendary",
+    "Mythical","Unique","Godly","Celestial",
+    "Astounding","Fabulous","Glorious","Miraculous",
+    "Staggering","Supernatural","Unbeatable",
+}
+local function qualityRank(text)
+    if not text then return 0 end
+    for i = #qualityOrder, 1, -1 do
+        if text:find(qualityOrder[i]) then return i end
+    end
+    return 0
+end
 
 local function sendWebhook(sword, enchants, info)
     if WEBHOOK_URL == "" then return end
@@ -258,38 +479,90 @@ local function sendWebhook(sword, enchants, info)
     end)
 end
 
+local function getAscenderSword()
+    local stats = game:GetService("ReplicatedStorage"):FindFirstChild("Stats")
+    if not stats then return nil end
+    local pStats = stats:FindFirstChild(player.Name)
+    if not pStats then return nil end
+    local ascFolder = pStats:FindFirstChild("Ascender")
+    if not ascFolder then return nil end
+    local children = ascFolder:GetChildren()
+    if #children == 0 then return nil end
+    return workspace.Swords:FindFirstChild(children[1].Name)
+end
+
+local function sendAscenderWebhook(sword, quality, attempts)
+    if WEBHOOK_URL == "" then return end
+    local info    = getSwordInfo(sword)
+    local enchants = getSwordEnchants(sword)
+    pcall(function()
+        local color = 16766720
+        for rarity, col in pairs(rarityColors) do
+            if quality and quality:find(rarity) then color = col break end
+        end
+        local fields = {}
+        for idx, e in ipairs(enchants) do
+            table.insert(fields, { name = "Enchant "..idx, value = e, inline = true })
+        end
+        table.insert(fields, { name = "Quality",  value = quality or "?",     inline = true })
+        table.insert(fields, { name = "Attempts", value = tostring(attempts), inline = true })
+        table.insert(fields, { name = "Level",    value = info.level or "?",  inline = true })
+        table.insert(fields, { name = "Worth",    value = info.worth or "?",  inline = true })
+        request({
+            Url    = WEBHOOK_URL,
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = HS:JSONEncode({
+                username   = "TinouHUB",
+                avatar_url = "https://tr.rbxcdn.com/180DAY-placeholder/150/150/AvatarHeadshot/Webp/noFilter",
+                embeds = {{
+                    title       = "Ascender — Target Reached!",
+                    description = "**"..player.Name.."** reached **"..quality.."** in "..attempts.." tries!",
+                    color       = color,
+                    fields      = fields,
+                    footer      = { text = "TinouHub v"..VERSION.." | Sword Factory X" },
+                    timestamp   = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+                }}
+            })
+        })
+    end)
+end
+
 local childAddedConn = nil
-local processingSwords = {}  -- guard anti-double-pickup
 
 local function handleSword(sword, lbl)
     if not scanning then return end
-    local swordName = sword.Name
-    if processingSwords[swordName] then return end
     if not isProtected(sword) and swordMatches(sword) then
-        processingSwords[swordName] = true
         local enchants = getSwordEnchants(sword)
         local info     = getSwordInfo(sword)
         flyPickup(sword)
+        if AUTO_BANK then
+            task.wait(0.3)
+            pcall(function() remote:FireServer("Set Hotbar", sword.Name, "Inventory") end)
+            if AUTO_SELL then
+                task.wait(0.5)
+                pcall(function() remoteFunc:InvokeServer("Sell All") end)
+            end
+        end
         totalPicked = totalPicked + 1
         pcall(function() lbl:Set("Sniped! Total: "..totalPicked) end)
         Rayfield:Notify({Title="Sword Found!", Content=table.concat(enchants,", "), Duration=3})
         sendWebhook(sword, enchants, info)
-        task.delay(5, function() processingSwords[swordName] = nil end)
     end
 end
 
 local function startScan(lbl)
     scanning = true
 
-    -- ChildAdded: detection instantanee
+    -- ChildAdded: instant detection
     if childAddedConn then childAddedConn:Disconnect() end
     childAddedConn = workspace.Swords.ChildAdded:Connect(function(sword)
-        task.wait(0.3)  -- petit délai pour que les enchants se chargent
+        task.wait(0.3)  -- small delay for enchants to load
         if not sword.Parent then return end
         handleSword(sword, lbl)
     end)
 
-    -- Polling: re-scan complet toutes les SCAN_RATE secondes (rattrape les rates)
+    -- Polling: full re-scan every SCAN_RATE seconds (catches missed swords)
     task.spawn(function()
         while scanning do
             pcall(function()
@@ -317,7 +590,7 @@ local Window = Rayfield:CreateWindow({
     KeySettings     = {
         Title    = "TinouHub",
         Subtitle = "Key System",
-        Note     = "Demande ta cle a ImTinou",
+        Note     = "Ask ImTinou for your key",
         FileName = "TinouHubKey",
         SaveKey  = true,
         GrabKeyFromSite = false,
@@ -325,107 +598,91 @@ local Window = Rayfield:CreateWindow({
     },
 })
 
--- Tab principal
+-- ===================== SCANNER =====================
 local Tab = Window:CreateTab("Scanner", "shield")
 
 Tab:CreateSection("Options")
+uiAutoBank = Tab:CreateToggle({ Name="Auto-Bank matched swords", CurrentValue=AUTO_BANK, Flag="AutoBank", Callback=function(v) AUTO_BANK=v saveConfig() end })
+uiAutoSell = Tab:CreateToggle({ Name="Auto-Sell after bank",      CurrentValue=AUTO_SELL, Flag="AutoSell", Callback=function(v) AUTO_SELL=v saveConfig() end })
+uiMatchAll = Tab:CreateToggle({ Name="Match ALL enchants",        CurrentValue=MATCH_ALL, Flag="MatchAll", Callback=function(v) MATCH_ALL=v saveConfig() end })
+uiScanRate = Tab:CreateSlider({ Name="Scan Rate (s)", Range={0.1,3}, Increment=0.1, CurrentValue=SCAN_RATE, Flag="ScanRate", Callback=function(v) SCAN_RATE=v saveConfig() end })
 
-Tab:CreateToggle({
-    Name         = "Match all 3 enchants per profile",
-    CurrentValue = MATCH_ALL,
-    Flag         = "MatchAll",
-    Callback     = function(val) MATCH_ALL = val saveConfig() end,
-})
-
-Tab:CreateSlider({
-    Name         = "Scan Rate (s)",
-    Range        = {0.1, 3},
-    Increment    = 0.1,
-    CurrentValue = SCAN_RATE,
-    Flag         = "ScanRate",
-    Callback     = function(val) SCAN_RATE = val saveConfig() end,
-})
-
-Tab:CreateSection("Discord Webhook")
-
-local function webhookStatus()
-    if WEBHOOK_URL == "" then return "Webhook: Not set" end
-    return "Webhook: ..."..(WEBHOOK_URL:sub(-20))
-end
-
+Tab:CreateSection("Webhook")
+local function webhookStatus() return WEBHOOK_URL=="" and "Not configured" or "..."..(WEBHOOK_URL:sub(-20)) end
 local webhookLbl = Tab:CreateLabel(webhookStatus())
-
-Tab:CreateInput({
-    Name        = "Webhook URL",
-    PlaceholderText = "https://discord.com/api/webhooks/...",
-    RemoveTextAfterFocusLost = false,
-    Flag        = "WebhookURL",
-    Callback    = function(val)
-        if val == "" then return end  -- ignore si vide
-        WEBHOOK_URL = val
-        saveConfig()  -- auto-save
+Tab:CreateInput({ Name="Webhook URL", PlaceholderText="https://discord.com/api/webhooks/...", RemoveTextAfterFocusLost=false, Flag="WebhookURL",
+    Callback=function(val)
+        if val=="" then return end
+        WEBHOOK_URL=val saveConfig()
         pcall(function() webhookLbl:Set(webhookStatus()) end)
-        Rayfield:Notify({Title="Webhook", Content="URL sauvegardee!", Duration=2})
-    end,
-})
+        Rayfield:Notify({Title="Webhook", Content="Saved!", Duration=2})
+    end })
 
 Tab:CreateSection("Control")
-
 local statusLbl = Tab:CreateLabel("Status: Ready")
+Tab:CreateButton({ Name="Start Scanner", Callback=function()
+    if not scanning then startScan(statusLbl) Rayfield:Notify({Title="Scanner", Content="Started!", Duration=2}) end
+end })
+Tab:CreateButton({ Name="Stop Scanner", Callback=function()
+    scanning=false Rayfield:Notify({Title="Scanner", Content="Stopped.", Duration=2})
+end })
 
-Tab:CreateButton({
-    Name     = "Start Auto-Pickup",
-    Callback = function()
-        if not scanning then
-            startScan(statusLbl)
-            Rayfield:Notify({Title="Enchant Picker", Content="Scan started!", Duration=2})
-        end
-    end,
-})
+-- ===================== PROFILES =====================
+local ProfTab = Window:CreateTab("Profiles", "star")
+local function getOpt(o) return type(o)=="table" and o[1] or o end
 
-Tab:CreateButton({
-    Name     = "Stop Auto-Pickup",
-    Callback = function()
-        scanning = false
-        Rayfield:Notify({Title="Enchant Picker", Content="Stopped.", Duration=2})
-    end,
-})
+for i = 1, 3 do
+    local prof = profiles[i]
+    uiProfileSlot[i] = {}
+    ProfTab:CreateSection("Profile "..i)
+    uiProfileToggle[i] = ProfTab:CreateToggle({ Name="Enable Profile "..i, CurrentValue=prof.active, Flag="P"..i.."On",
+        Callback=function(v) profiles[i].active=v saveConfig() end })
+    uiProfileSlot[i][1] = ProfTab:CreateDropdown({ Name="Enchant 1", Options=enchantList, CurrentOption=prof.slots[1], MultipleOptions=false, Flag="P"..i.."S1",
+        Callback=function(o) profiles[i].slots[1]=getOpt(o) saveConfig() end })
+    uiProfileSlot[i][2] = ProfTab:CreateDropdown({ Name="Enchant 2", Options=enchantList, CurrentOption=prof.slots[2], MultipleOptions=false, Flag="P"..i.."S2",
+        Callback=function(o) profiles[i].slots[2]=getOpt(o) saveConfig() end })
+    uiProfileSlot[i][3] = ProfTab:CreateDropdown({ Name="Enchant 3", Options=enchantList, CurrentOption=prof.slots[3], MultipleOptions=false, Flag="P"..i.."S3",
+        Callback=function(o) profiles[i].slots[3]=getOpt(o) saveConfig() end })
+end
+
+-- ===================== SETTINGS =====================
+local SettingsTab = Window:CreateTab("Settings", "settings")
+
+SettingsTab:CreateSection("General")
+SettingsTab:CreateToggle({ Name="Anti-AFK", CurrentValue=ANTI_AFK, Flag="AntiAFK", Callback=function(v) ANTI_AFK=v saveConfig() end })
+
+SettingsTab:CreateSection("Actions")
+SettingsTab:CreateButton({ Name="Sell All", Callback=function()
+    pcall(function() remoteFunc:InvokeServer("Sell All") end)
+    Rayfield:Notify({Title="Sell", Content="Sold!", Duration=2})
+end })
+SettingsTab:CreateButton({ Name="Save Config", Callback=function() saveConfig() Rayfield:Notify({Title="Config", Content="Saved!", Duration=2}) end })
+SettingsTab:CreateButton({ Name="Load Config", Callback=function() loadConfig() Rayfield:Notify({Title="Config", Content="Loaded! Restart to apply.", Duration=3}) end })
 
 
--- Tab Misc
-local MiscTab = Window:CreateTab("Misc", "settings")
+SettingsTab:CreateSection("Webhook Status")
+SettingsTab:CreateSlider({ Name="Rapport auto (minutes, 0=désactivé)", Range={0,60}, Increment=5, CurrentValue=STATUS_INTERVAL, Flag="StatusInterval",
+    Callback=function(v) STATUS_INTERVAL=v saveConfig() end })
+SettingsTab:CreateButton({ Name="Envoyer un rapport maintenant", Callback=function()
+    if WEBHOOK_URL=="" then Rayfield:Notify({Title="Statut", Content="Webhook non configuré!", Duration=3}) return end
+    sendStatusReport()
+    Rayfield:Notify({Title="Statut", Content="Rapport envoyé!", Duration=2})
+end })
 
-MiscTab:CreateSection("Anti-AFK")
+SettingsTab:CreateSection("Discord Control")
+local function controlStatus() return CONTROL_URL=="" and "Non configure" or "..."..(CONTROL_URL:sub(-24)) end
+local controlLbl = SettingsTab:CreateLabel(controlStatus())
+SettingsTab:CreateInput({ Name="Gist URL (Control)", PlaceholderText="https://gist.githubusercontent.com/...", RemoveTextAfterFocusLost=false, Flag="ControlURL",
+    Callback=function(val)
+        if val=="" then return end
+        CONTROL_URL=val saveConfig()
+        pcall(function() controlLbl:Set(controlStatus()) end)
+        Rayfield:Notify({Title="Discord Control", Content="URL sauvegardee!", Duration=2})
+    end })
 
-MiscTab:CreateToggle({
-    Name         = "Anti-AFK",
-    CurrentValue = ANTI_AFK,
-    Flag         = "AntiAFK",
-    Callback     = function(val) ANTI_AFK = val saveConfig() end,
-})
-
-MiscTab:CreateSection("Configuration")
-
-MiscTab:CreateButton({
-    Name     = "Save Config",
-    Callback = function()
-        saveConfig()
-        Rayfield:Notify({Title="Config", Content="Config saved!", Duration=2})
-    end,
-})
-
-MiscTab:CreateButton({
-    Name     = "Load Config",
-    Callback = function()
-        loadConfig()
-        Rayfield:Notify({Title="Config", Content="Config loaded! Restart to apply.", Duration=3})
-    end,
-})
-
-MiscTab:CreateSection("Info")
-
-MiscTab:CreateLabel("TinouHub v"..VERSION.." | Sword Factory X")
-MiscTab:CreateLabel("github.com/ImTinou/sword")
+SettingsTab:CreateSection("Info")
+SettingsTab:CreateLabel("TinouHub v"..VERSION.." | Sword Factory X")
+SettingsTab:CreateLabel("github.com/ImTinou/sword")
 
 -- Tab Farm
 local FarmTab = Window:CreateTab("Farm", "zap")
@@ -439,21 +696,36 @@ local zoneList = {
 -- Mapping zone name -> area ID (remote arg "Teleport Area", [id])
 local zoneIds = {
     ["Beginner's Trials"]  = 1,
-    ["Crystal Caverns"]    = 2,
-    ["Snowy Fields"]       = 3,
-    ["Mystical Forest"]    = 4,
-    ["Stranded Island"]    = 5,
-    ["Heavenly Gates"]     = 6,
+    ["Mystical Forest"]    = 2,
+    ["Stranded Island"]    = 3,
+    ["Snowy Fields"]       = 4,
+    ["Crystal Caverns"]    = 5,
+    ["Volcanic Isles"]     = 6,
     ["Intraplanetarium"]   = 7,
-    ["Volcanic Isles"]     = 8,
-    ["Ancient Mineshaft"]  = 9,
+    ["Ancient Mineshaft"]  = 8,
+    ["Heavenly Gates"]     = 9,
 }
 
 local selectedZone    = "Beginner's Trials"
 local farming         = false
-local MIN_HP_PCT      = 0.35   -- retraite si HP < 35%
-local farmSafePos     = nil    -- sauvegarde quand on demarre le farm
+local MIN_HP_PCT      = 0.35
+local FARM_POS_MODE   = "Below"
+local FARM_Y_OFFSET   = 5
+local farmSafePos     = nil
+local FARM_REACH      = 10
 local VU              = game:GetService("VirtualUser")
+
+local expandedNpcs = {}
+local function expandHitbox(npc)
+    if expandedNpcs[npc] then return end
+    expandedNpcs[npc] = true
+    pcall(function()
+        local root = npc:FindFirstChild("HumanoidRootPart")
+        if root then
+            root.Size = Vector3.new(FARM_REACH, FARM_REACH, FARM_REACH)
+        end
+    end)
+end
 
 local function getHpPct()
     local char = player.Character
@@ -463,43 +735,42 @@ local function getHpPct()
     return hum.Health / hum.MaxHealth
 end
 
+local function activateTool()
+    pcall(function()
+        local char = player.Character
+        if not char then return end
+        local tool = char:FindFirstChildOfClass("Tool")
+        if tool then tool:Activate() end
+    end)
+end
+
 local function retreatAndHeal(lbl)
-    -- Stop le click au cas ou
-    pcall(function() VU:Button1Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame) end)
-    -- Teleport au safe spot
+    pcall(function() end) -- placeholder, no Button1Up needed anymore
+    -- Teleport to safe spot
     local char = player.Character
     if char and farmSafePos then
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if hrp then hrp.CFrame = farmSafePos end
     end
-    -- Attendre regen (>80% HP)
+    -- Wait for regen (>80% HP)
     local t = 0
     while getHpPct() < 0.8 and farming do
         t = t + 0.5
         pcall(function() lbl:Set("Low HP! Healing... ("..math.floor(getHpPct()*100).."%)") end)
         task.wait(0.5)
-        if t > 30 then break end  -- max 30s d'attente
+        if t > 30 then break end  -- max 30s wait
     end
 end
 
-local function getNpcsInZone(zoneName)
+local function getNpcsInZone()
     local npcs = {}
-    local zoneFolder = workspace:FindFirstChild("Areas") and workspace.Areas:FindFirstChild(zoneName)
+    local char = player.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
     for _, npc in pairs(workspace.NPCs:GetChildren()) do
         local hum = npc:FindFirstChildOfClass("Humanoid")
-        if hum and hum.Health > 0 then
-            if zoneFolder then
-                local map = zoneFolder:FindFirstChild("Map")
-                if map then
-                    local ref = map:FindFirstChildOfClass("BasePart")
-                    if ref then
-                        local npcRoot = npc:FindFirstChild("HumanoidRootPart")
-                        if npcRoot and (npcRoot.Position - ref.Position).Magnitude < 500 then
-                            table.insert(npcs, npc)
-                        end
-                    end
-                end
-            else
+        local npcRoot = npc:FindFirstChild("HumanoidRootPart")
+        if hum and hum.Health > 0 and npcRoot then
+            if not hrp or (npcRoot.Position - hrp.Position).Magnitude < 600 then
                 table.insert(npcs, npc)
             end
         end
@@ -507,20 +778,21 @@ local function getNpcsInZone(zoneName)
     return npcs
 end
 
-local function attackNpc(npc)
+local function goUnderNpc(npc)
     local char = player.Character
     if not char then return end
     local hrp     = char:FindFirstChild("HumanoidRootPart")
     local npcRoot = npc:FindFirstChild("HumanoidRootPart")
     if not hrp or not npcRoot then return end
-    -- Blink sur le mob a 3 studs
-    hrp.CFrame = npcRoot.CFrame * CFrame.new(0, 0, 3)
-    -- Maintien du clic pour taper
-    VU:Button1Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
-    task.wait(0.3)
-    VU:Button1Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
-    -- Retour au safe spot
-    if farmSafePos then hrp.CFrame = farmSafePos end
+    expandHitbox(npc)
+    local p = npcRoot.Position
+    if FARM_POS_MODE == "Below" then
+        hrp.CFrame = CFrame.new(p.X, p.Y - FARM_Y_OFFSET, p.Z)
+    elseif FARM_POS_MODE == "Above" then
+        hrp.CFrame = CFrame.new(p.X, p.Y + FARM_Y_OFFSET, p.Z)
+    elseif FARM_POS_MODE == "Behind" then
+        hrp.CFrame = npcRoot.CFrame * CFrame.new(0, 0, FARM_Y_OFFSET)
+    end
 end
 
 FarmTab:CreateSection("Zone")
@@ -537,6 +809,35 @@ FarmTab:CreateDropdown({
 
 FarmTab:CreateSection("Options")
 
+FarmTab:CreateDropdown({
+    Name            = "Position",
+    Options         = {"Below","Above","Behind"},
+    CurrentOption   = "Below",
+    MultipleOptions = false,
+    Flag            = "FarmPosMode",
+    Callback        = function(opt)
+        FARM_POS_MODE = type(opt) == "table" and opt[1] or opt
+    end,
+})
+
+FarmTab:CreateSlider({
+    Name         = "Offset (studs)",
+    Range        = {5, 60},
+    Increment    = 5,
+    CurrentValue = 5,
+    Flag         = "FarmYOffset",
+    Callback     = function(val) FARM_Y_OFFSET = val end,
+})
+
+FarmTab:CreateSlider({
+    Name         = "Hitbox Reach (HRP size)",
+    Range        = {4, 50},
+    Increment    = 2,
+    CurrentValue = 10,
+    Flag         = "FarmReach",
+    Callback     = function(val) FARM_REACH = val expandedNpcs = {} end,
+})
+
 FarmTab:CreateSlider({
     Name         = "Min HP before retreat (%)",
     Range        = {10, 80},
@@ -545,6 +846,7 @@ FarmTab:CreateSlider({
     Flag         = "FarmMinHp",
     Callback     = function(val) MIN_HP_PCT = val / 100 end,
 })
+
 
 FarmTab:CreateSection("Control")
 
@@ -559,10 +861,10 @@ FarmTab:CreateButton({
             return
         end
         local ok, err = pcall(function()
-            remote:FireServer("Teleport Area", id)
+            remoteFunc:InvokeServer("Teleport Area", id)
         end)
         if ok then
-            Rayfield:Notify({Title="Farm", Content="TP fired -> "..selectedZone.." (id="..id..")", Duration=3})
+            Rayfield:Notify({Title="Farm", Content="TP -> "..selectedZone, Duration=3})
         else
             Rayfield:Notify({Title="Farm", Content="TP error: "..(err or "?"), Duration=5})
         end
@@ -574,13 +876,13 @@ FarmTab:CreateButton({
     Callback = function()
         if farming then return end
         farming = true
-        -- Sauvegarder position de depart comme safe spot
+        -- Save starting position as safe spot
         local char = player.Character
         if char then
             local hrp = char:FindFirstChild("HumanoidRootPart")
             if hrp then farmSafePos = hrp.CFrame end
         end
-        -- Gestion mort: si le perso meurt, stop le farm
+        -- Death handling: if player dies, stop farm
         local deathConn
         if char then
             local hum = char:FindFirstChildOfClass("Humanoid")
@@ -588,46 +890,49 @@ FarmTab:CreateButton({
                 deathConn = hum.Died:Connect(function()
                     farming = false
                     pcall(function() farmStatusLbl:Set("Farm: Stopped (death)") end)
-                    Rayfield:Notify({Title="Farm", Content="Mort! Farm arrete.", Duration=4})
+                    Rayfield:Notify({Title="Farm", Content="Died! Farm stopped.", Duration=4})
                 end)
             end
         end
         task.spawn(function()
             local killed = 0
             while farming do
-                -- Verifier HP en debut de loop
-                if getHpPct() < MIN_HP_PCT then
-                    retreatAndHeal(farmStatusLbl)
-                end
-                if not farming then break end
-
-                local npcs = getNpcsInZone(selectedZone)
+                local npcs = getNpcsInZone()
                 if #npcs == 0 then
                     pcall(function() farmStatusLbl:Set("No mobs found...") end)
                     task.wait(2)
-                else
-                    for _, npc in ipairs(npcs) do
-                        if not farming then break end
-                        local hum = npc:FindFirstChildOfClass("Humanoid")
-                        while hum and hum.Health > 0 and farming do
-                            -- Retreat si HP trop bas pendant le combat
-                            if getHpPct() < MIN_HP_PCT then
-                                retreatAndHeal(farmStatusLbl)
-                                if not farming then break end
-                            end
-                            attackNpc(npc)
-                            task.wait(0.15)
+                    continue
+                end
+                for _, npc in ipairs(npcs) do
+                    if not farming then break end
+                    local hum = npc:FindFirstChildOfClass("Humanoid")
+                    if not hum or hum.Health <= 0 then continue end
+                    -- TP once under the mob
+                    goUnderNpc(npc)
+                    while hum.Health > 0 and farming do
+                        if getHpPct() < MIN_HP_PCT then
+                            retreatAndHeal(farmStatusLbl)
+                            if not farming then break end
+                            goUnderNpc(npc)
                         end
-                        if hum and hum.Health <= 0 then
-                            killed = killed + 1
-                            pcall(function()
-                                farmStatusLbl:Set("Zone: "..selectedZone.." | Kills: "..killed.." | HP: "..math.floor(getHpPct()*100).."%")
-                            end)
+                        -- Reposition only if knocked far away
+                        local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+                        local npcRoot = npc:FindFirstChild("HumanoidRootPart")
+                        if hrp and npcRoot and (hrp.Position - npcRoot.Position).Magnitude > FARM_Y_OFFSET + 10 then
+                            goUnderNpc(npc)
                         end
+                        activateTool()
+                        task.wait(0.15)
+                    end
+                    if hum.Health <= 0 then
+                        killed = killed + 1
+                        pcall(function()
+                            farmStatusLbl:Set("Kills: "..killed.." | HP: "..math.floor(getHpPct()*100).."%")
+                        end)
                     end
                 end
-                task.wait(0.3)
             end
+            expandedNpcs = {}
             pcall(function() farmStatusLbl:Set("Farm: Stopped | Kills: "..killed) end)
             if deathConn then deathConn:Disconnect() end
         end)
@@ -642,49 +947,83 @@ FarmTab:CreateButton({
     end,
 })
 
--- Tabs profils
-for i = 1, 3 do
-    local pTab = Window:CreateTab("Profile "..i, "star")
-    local prof = profiles[i]
+-- ===================== ASCENDER =====================
+local AscTab = Window:CreateTab("Ascender", "trending-up")
 
-    pTab:CreateSection("Profile "..i.." Enchants")
+AscTab:CreateSection("Config")
+local ascStatusLbl = AscTab:CreateLabel("Ascender: Idle")
+AscTab:CreateDropdown({ Name="Mode", Options={"Rarity","Quality","Level","Mold","Class","Enchant"}, CurrentOption="Rarity", MultipleOptions=false, Flag="AscMode",
+    Callback=function(o) ascMode=type(o)=="table" and o[1] or o end })
+AscTab:CreateDropdown({ Name="Stop at", Options=qualityOrder, CurrentOption="Miraculous", MultipleOptions=false, Flag="AscTarget",
+    Callback=function(o) targetQuality=type(o)=="table" and o[1] or o end })
 
-    pTab:CreateToggle({
-        Name         = "Enable Profile "..i,
-        CurrentValue = prof.active,
-        Flag         = "Profile"..i.."Active",
-        Callback     = function(val) profiles[i].active = val saveConfig() end,
-    })
+AscTab:CreateSection("Control")
+AscTab:CreateButton({ Name="Start Auto-Ascend", Callback=function()
+    if ascending then return end
+    if not getAscenderSword() then Rayfield:Notify({Title="Ascender", Content="No sword in Ascender!", Duration=3}) return end
+    ascending=true ascAttempts=0
+    task.spawn(function()
+        while ascending do
+            local s=getAscenderSword()
+            if not s then ascending=false pcall(function() ascStatusLbl:Set("Sword not found") end) break end
+            local q=stripRichText(s.Main.Gui.ItemInfo.RarityQuality.Text)
+            if qualityRank(q)>=qualityRank(targetQuality) then
+                ascending=false
+                pcall(function() ascStatusLbl:Set("Done! "..q.." | "..ascAttempts.." tries") end)
+                Rayfield:Notify({Title="Ascender", Content=q.." in "..ascAttempts.." tries!", Duration=6})
+                sendAscenderWebhook(s,q,ascAttempts) break
+            end
+            pcall(function() remote:FireServer("Set Ascender Mode", ascMode) end)
+            ascAttempts=ascAttempts+1
+            pcall(function() ascStatusLbl:Set(q.." | "..ascAttempts.." tries") end)
+            task.wait(0.12)
+        end
+        ascending=false
+    end)
+    Rayfield:Notify({Title="Ascender", Content="Started!", Duration=2})
+end })
+AscTab:CreateButton({ Name="Stop", Callback=function() ascending=false Rayfield:Notify({Title="Ascender", Content="Stopped.", Duration=2}) end })
 
-    local function getOpt(opt)
-        return type(opt) == "table" and opt[1] or opt
-    end
+-- ===================== AUTO-UPGRADE =====================
+local autoUpgrading = false
+local upgEnabled = { Conveyor=false, Appraiser=false, Polisher=false, Upgrader=false, Molder=false, Classifier=false, Enchanter=false }
 
-    pTab:CreateDropdown({
-        Name            = "Slot 1",
-        Options         = enchantList,
-        CurrentOption   = prof.slots[1],
-        MultipleOptions = false,
-        Flag            = "Profile"..i.."Slot1",
-        Callback        = function(opt) profiles[i].slots[1] = getOpt(opt) saveConfig() end,
-    })
+local UpgTab = Window:CreateTab("Upgrade", "tool")
 
-    pTab:CreateDropdown({
-        Name            = "Slot 2",
-        Options         = enchantList,
-        CurrentOption   = prof.slots[2],
-        MultipleOptions = false,
-        Flag            = "Profile"..i.."Slot2",
-        Callback        = function(opt) profiles[i].slots[2] = getOpt(opt) saveConfig() end,
-    })
-
-    pTab:CreateDropdown({
-        Name            = "Slot 3",
-        Options         = enchantList,
-        CurrentOption   = prof.slots[3],
-        MultipleOptions = false,
-        Flag            = "Profile"..i.."Slot3",
-        Callback        = function(opt) profiles[i].slots[3] = getOpt(opt) saveConfig() end,
-    })
-
+UpgTab:CreateSection("Machines")
+for _, machine in ipairs({"Conveyor","Appraiser","Polisher","Upgrader","Molder","Classifier","Enchanter"}) do
+    local m = machine
+    UpgTab:CreateToggle({ Name=m, CurrentValue=false, Flag="Upg"..m, Callback=function(v) upgEnabled[m]=v end })
 end
+
+UpgTab:CreateSection("Control")
+local upgStatusLbl = UpgTab:CreateLabel("Auto-Upgrade: Idle")
+UpgTab:CreateButton({ Name="Upgrade Now", Callback=function()
+    for _, m in ipairs({"Conveyor","Appraiser","Polisher","Upgrader","Molder","Classifier","Enchanter"}) do
+        if upgEnabled[m] then pcall(function() remoteFunc:InvokeServer("Upgrade Machine", m, 1) end) end
+    end
+    Rayfield:Notify({Title="Upgrade", Content="Done!", Duration=2})
+end })
+UpgTab:CreateButton({ Name="Start Auto-Upgrade", Callback=function()
+    if autoUpgrading then return end
+    autoUpgrading=true
+    task.spawn(function()
+        while autoUpgrading do
+            local upgraded={}
+            for _, m in ipairs({"Conveyor","Appraiser","Polisher","Upgrader","Molder","Classifier","Enchanter"}) do
+                if upgEnabled[m] then
+                    pcall(function() remoteFunc:InvokeServer("Upgrade Machine", m, 1) end)
+                    table.insert(upgraded, m)
+                    task.wait(0.2)
+                end
+            end
+            pcall(function() upgStatusLbl:Set(#upgraded>0 and "Upgraded: "..table.concat(upgraded,", ") or "No machine selected") end)
+            task.wait(3)
+        end
+        pcall(function() upgStatusLbl:Set("Auto-Upgrade: Stopped") end)
+    end)
+    Rayfield:Notify({Title="Upgrade", Content="Auto-upgrade started!", Duration=2})
+end })
+UpgTab:CreateButton({ Name="Stop Auto-Upgrade", Callback=function()
+    autoUpgrading=false Rayfield:Notify({Title="Upgrade", Content="Stopped.", Duration=2})
+end })
