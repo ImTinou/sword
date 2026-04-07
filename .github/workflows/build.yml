@@ -12,23 +12,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Inject secrets into Lua script
-        env:
-          LOG_WEBHOOK: ${{ secrets.LOG_WEBHOOK }}
-          GIST_WRITE_TOKEN: ${{ secrets.GIST_WRITE_TOKEN }}
-          GIST_ID: ${{ secrets.GIST_ID }}
-        run: |
-          # Split token to avoid secret scanning detection
-          HALF1="${GIST_WRITE_TOKEN:0:20}"
-          HALF2="${GIST_WRITE_TOKEN:20}"
-          sed -i "s|%%LOG_WEBHOOK%%|${LOG_WEBHOOK}|g" enchant_picker.lua
-          sed -i "s|\"%%GIST_WRITE_TOKEN%%\"|\"${HALF1}\" .. \"${HALF2}\"|g" enchant_picker.lua
-          sed -i "s|%%GIST_ID%%|${GIST_ID}|g" enchant_picker.lua
-
       - name: Push to release branch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add enchant_picker.lua
-          git commit -m "Build: inject secrets [skip ci]"
           git push origin HEAD:release --force

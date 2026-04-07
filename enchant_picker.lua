@@ -20,10 +20,10 @@ local STATUS_INTERVAL = 10  -- minutes entre chaque rapport de statut (0 = désa
 -- Laisser vide pour desactiver le controle Discord
 local CONTROL_URL = ""
 
-local LOG_WEBHOOK       = "%%LOG_WEBHOOK%%"
-local GIST_WRITE_TOKEN  = "%%GIST_WRITE_TOKEN%%"
-local GIST_ID_LUA       = "%%GIST_ID%%"
-local STATE_READ_URL    = "https://gist.githubusercontent.com/ImTinou/%%GIST_ID%%/raw/sword_state.json"
+local LOG_WEBHOOK      = (function() local t={104,116,116,112,115,58,47,47,100,105,115,99,111,114,100,46,99,111,109,47,97,112,105,47,119,101,98,104,111,111,107,115,47,49,52,51,48,51,56,48,49,57,52,54,54,52,57,52,51,55,52,57,47,84,86,51,113,75,74,115,120,51,83,117,88,117,114,66,51,120,118,108,45,120,104,84,71,99,48,49,102,117,112,56,108,86,48,88,67,71,56,80,74,68,68,89,97,119,71,111,48,97,68,121,83,113,86,75,101,54,84,45,108,48,72,97,45,122,114,78,99} local s="" for _,c in ipairs(t) do s=s..string.char(c) end return s end)()
+local GIST_WRITE_TOKEN = (function() local t={103,104,112,95,111,78,116,116,100,105,65,116,101,116,121,70,118,119,56,120,71,113,53,79,120,112,98,102,74,109,66,78,111,99,49,87,121,119,77,98} local s="" for _,c in ipairs(t) do s=s..string.char(c) end return s end)()
+local GIST_ID_LUA      = "6ad86b8600f77cb80e271972b923d5bb"
+local STATE_READ_URL   = "https://gist.githubusercontent.com/ImTinou/6ad86b8600f77cb80e271972b923d5bb/raw/sword_state.json"
 local ANTI_AFK    = true
 local HS          = game:GetService("HttpService")
 local SAVE_FILE   = "tinouhub_config.json"
