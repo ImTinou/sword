@@ -249,10 +249,76 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
-@bot.command(name="control")
-async def cmd_control(ctx, username: str):
-    """Cree un channel de controle pour un joueur Roblox. Ex: !control ImTinou"""
+# ─── HELPER : creation du channel control ──────────────────────────────────────
+
+async def create_control_channel(guild: discord.Guild, username: str) -> discord.TextChannel | None:
+    """Cree #control-<username> avec les deux panels. Retourne None si deja existant."""
     channel_name = f"control-{username.lower()}"
+    if discord.utils.get(guild.channels, name=channel_name):
+        return None
+
+    category = guild.get_channel(CONTROL_CATEGORY_ID) if CONTROL_CATEGORY_ID else None
+    channel  = await guild.create_text_channel(channel_name, category=category)
+
+    msg1 = await channel.send(
+        content="**Panel de contrôle**",
+        embed=control_embed(username),
+        view=ControlView(username),
+    )
+    msg2 = await channel.send(
+        content="**Profils d'enchants**",
+        embed=profiles_embed(username),
+        view=ProfilesView(username),
+    )
+    try:
+        await msg2.pin()
+        await msg1.pin()
+    except: pass
+
+    return channel
+
+# ─── SETUP : modal + bouton + commande !config ─────────────────────────────────
+
+class UsernameModal(discord.ui.Modal, title="Ouvrir mon panel TinouHub"):
+    username = discord.ui.TextInput(
+        label="Ton username Roblox",
+        placeholder="ex: ImTinou",
+        min_length=3,
+        max_length=20,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        username = self.username.value.strip()
+        await interaction.response.defer(ephemeral=True)
+
+        channel = await create_control_channel(interaction.guild, username)
+        if channel is None:
+            existing = discord.utils.get(interaction.guild.channels, name=f"control-{username.lower()}")
+            await interaction.followup.send(
+                f"Tu as déjà un panel : {existing.mention}", ephemeral=True
+            )
+        else:
+            await interaction.followup.send(
+                f"✅ Panel créé : {channel.mention}", ephemeral=True
+            )
+
+
+class SetupView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="🎮  Ouvrir mon panel de contrôle",
+        style=discord.ButtonStyle.blurple,
+    )
+    async def open_panel(self, interaction: discord.Interaction, _):
+        await interaction.response.send_modal(UsernameModal())
+
+
+@bot.command(name="config")
+async def cmd_config(ctx):
+    """Cree le channel de setup avec le bouton d'inscription. Ex: !config"""
+    channel_name = "tinouhub-setup"
 
     existing = discord.utils.get(ctx.guild.channels, name=channel_name)
     if existing:
@@ -264,26 +330,34 @@ async def cmd_control(ctx, username: str):
     category = ctx.guild.get_channel(CONTROL_CATEGORY_ID) if CONTROL_CATEGORY_ID else None
     channel  = await ctx.guild.create_text_channel(channel_name, category=category)
 
-    # Message 1 — panel principal
-    msg1 = await channel.send(
-        content="**Panel de contrôle**",
-        embed=control_embed(username),
-        view=ControlView(username),
+    e = discord.Embed(
+        title="TinouHub — Sword Factory X",
+        description=(
+            "Clique sur le bouton ci-dessous pour créer ton panel de contrôle personnel.\n\n"
+            "Il te sera demandé ton **username Roblox** — "
+            "un channel privé sera créé avec tous tes boutons de contrôle."
+        ),
+        color=0x5865F2,
     )
+    e.set_footer(text="TinouHub • Un panel par joueur")
 
-    # Message 2 — profils enchants
-    msg2 = await channel.send(
-        content="**Profils d'enchants**",
-        embed=profiles_embed(username),
-        view=ProfilesView(username),
-    )
-
-    try:
-        await msg2.pin()
-        await msg1.pin()  # pin dans l'ordre inverse → msg1 apparait en haut
+    msg = await channel.send(embed=e, view=SetupView())
+    try: await msg.pin()
     except: pass
 
-    await ctx.send(f"✅ Channel créé : {channel.mention}", delete_after=8)
+    await ctx.send(f"✅ Channel setup créé : {channel.mention}", delete_after=8)
+    try: await ctx.message.delete(delay=8)
+    except: pass
+
+@bot.command(name="control")
+async def cmd_control(ctx, username: str):
+    """Cree un channel de controle manuellement. Ex: !control ImTinou"""
+    channel = await create_control_channel(ctx.guild, username)
+    if channel is None:
+        existing = discord.utils.get(ctx.guild.channels, name=f"control-{username.lower()}")
+        await ctx.send(f"Channel déjà existant : {existing.mention}", delete_after=8)
+    else:
+        await ctx.send(f"✅ Channel créé : {channel.mention}", delete_after=8)
     try: await ctx.message.delete(delay=8)
     except: pass
 
