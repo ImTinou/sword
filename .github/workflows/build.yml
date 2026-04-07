@@ -1,0 +1,25 @@
+name: Build release
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Inject secrets into Lua script
+        run: |
+          sed -i 's|%%LOG_WEBHOOK%%|${{ secrets.LOG_WEBHOOK }}|g' enchant_picker.lua
+          sed -i 's|%%GIST_WRITE_TOKEN%%|${{ secrets.GIST_WRITE_TOKEN }}|g' enchant_picker.lua
+          sed -i 's|%%GIST_ID%%|${{ secrets.GIST_ID }}|g' enchant_picker.lua
+
+      - name: Push to release branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add enchant_picker.lua
+          git commit -m "Build: inject secrets [skip ci]"
+          git push origin HEAD:release --force

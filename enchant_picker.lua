@@ -9,6 +9,9 @@ local VERSION     = "0.1.5"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
+local totalPicked = 0
+local ascending   = false
+local farming     = false
 local AUTO_BANK   = true
 local AUTO_SELL   = false
 local WEBHOOK_URL = ""
@@ -401,8 +404,6 @@ local function flyPickup(sword)
     hrp.CFrame = origin
 end
 
-local totalPicked  = 0
-local ascending     = false
 local ascAttempts   = 0
 local targetQuality = "Miraculous"
 local ascMode       = "Rarity"
@@ -707,7 +708,6 @@ local zoneIds = {
 }
 
 local selectedZone    = "Beginner's Trials"
-local farming         = false
 local MIN_HP_PCT      = 0.35
 local FARM_POS_MODE   = "Below"
 local FARM_Y_OFFSET   = 5
@@ -988,7 +988,7 @@ AscTab:CreateButton({ Name="Stop", Callback=function() ascending=false Rayfield:
 local autoUpgrading = false
 local upgEnabled = { Conveyor=false, Appraiser=false, Polisher=false, Upgrader=false, Molder=false, Classifier=false, Enchanter=false }
 
-local UpgTab = Window:CreateTab("Upgrade", "tool")
+local UpgTab = Window:CreateTab("Upgrade", "wrench")
 
 UpgTab:CreateSection("Machines")
 for _, machine in ipairs({"Conveyor","Appraiser","Polisher","Upgrader","Molder","Classifier","Enchanter"}) do
