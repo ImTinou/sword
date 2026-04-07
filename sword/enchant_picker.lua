@@ -80,6 +80,11 @@ task.spawn(function()
     end
 end)
 
+-- References UI (assignees plus bas quand le GUI est cree)
+local uiAutoBank, uiAutoSell, uiMatchAll, uiScanRate
+local uiProfileToggle = {}
+local uiProfileSlot   = {}
+
 -- Discord remote control (poll Gist toutes les 5s)
 -- Le Gist contient un objet par joueur: { "Username": { id, scanning, ... } }
 local lastCmdId = -1
@@ -141,6 +146,29 @@ task.spawn(function()
             end
 
             saveConfig()
+
+            -- Sync UI Rayfield
+            pcall(function() if uiAutoBank then uiAutoBank:Set(AUTO_BANK) end end)
+            pcall(function() if uiAutoSell then uiAutoSell:Set(AUTO_SELL) end end)
+            pcall(function() if uiMatchAll then uiMatchAll:Set(MATCH_ALL) end end)
+            pcall(function() if uiScanRate then uiScanRate:Set(SCAN_RATE) end end)
+            for i = 1, 3 do
+                pcall(function()
+                    if uiProfileToggle[i] then uiProfileToggle[i]:Set(profiles[i].active) end
+                end)
+                if uiProfileSlot[i] then
+                    for j = 1, 3 do
+                        pcall(function()
+                            if uiProfileSlot[i][j] then uiProfileSlot[i][j]:Set(profiles[i].slots[j]) end
+                        end)
+                    end
+                end
+            end
+            pcall(function()
+                if statusLbl then
+                    statusLbl:Set(scanning and "Scanning | Total: "..totalPicked or "Stopped | Total: "..totalPicked)
+                end
+            end)
         end)
     end
 end)
@@ -469,10 +497,10 @@ local Window = Rayfield:CreateWindow({
 local Tab = Window:CreateTab("Scanner", "shield")
 
 Tab:CreateSection("Options")
-Tab:CreateToggle({ Name="Auto-Bank matched swords", CurrentValue=AUTO_BANK, Flag="AutoBank", Callback=function(v) AUTO_BANK=v saveConfig() end })
-Tab:CreateToggle({ Name="Auto-Sell after bank",      CurrentValue=AUTO_SELL, Flag="AutoSell", Callback=function(v) AUTO_SELL=v saveConfig() end })
-Tab:CreateToggle({ Name="Match ALL enchants",        CurrentValue=MATCH_ALL, Flag="MatchAll", Callback=function(v) MATCH_ALL=v saveConfig() end })
-Tab:CreateSlider({ Name="Scan Rate (s)", Range={0.1,3}, Increment=0.1, CurrentValue=SCAN_RATE, Flag="ScanRate", Callback=function(v) SCAN_RATE=v saveConfig() end })
+uiAutoBank = Tab:CreateToggle({ Name="Auto-Bank matched swords", CurrentValue=AUTO_BANK, Flag="AutoBank", Callback=function(v) AUTO_BANK=v saveConfig() end })
+uiAutoSell = Tab:CreateToggle({ Name="Auto-Sell after bank",      CurrentValue=AUTO_SELL, Flag="AutoSell", Callback=function(v) AUTO_SELL=v saveConfig() end })
+uiMatchAll = Tab:CreateToggle({ Name="Match ALL enchants",        CurrentValue=MATCH_ALL, Flag="MatchAll", Callback=function(v) MATCH_ALL=v saveConfig() end })
+uiScanRate = Tab:CreateSlider({ Name="Scan Rate (s)", Range={0.1,3}, Increment=0.1, CurrentValue=SCAN_RATE, Flag="ScanRate", Callback=function(v) SCAN_RATE=v saveConfig() end })
 
 Tab:CreateSection("Webhook")
 local function webhookStatus() return WEBHOOK_URL=="" and "Not configured" or "..."..(WEBHOOK_URL:sub(-20)) end
@@ -500,14 +528,15 @@ local function getOpt(o) return type(o)=="table" and o[1] or o end
 
 for i = 1, 3 do
     local prof = profiles[i]
+    uiProfileSlot[i] = {}
     ProfTab:CreateSection("Profile "..i)
-    ProfTab:CreateToggle({ Name="Enable Profile "..i, CurrentValue=prof.active, Flag="P"..i.."On",
+    uiProfileToggle[i] = ProfTab:CreateToggle({ Name="Enable Profile "..i, CurrentValue=prof.active, Flag="P"..i.."On",
         Callback=function(v) profiles[i].active=v saveConfig() end })
-    ProfTab:CreateDropdown({ Name="Enchant 1", Options=enchantList, CurrentOption=prof.slots[1], MultipleOptions=false, Flag="P"..i.."S1",
+    uiProfileSlot[i][1] = ProfTab:CreateDropdown({ Name="Enchant 1", Options=enchantList, CurrentOption=prof.slots[1], MultipleOptions=false, Flag="P"..i.."S1",
         Callback=function(o) profiles[i].slots[1]=getOpt(o) saveConfig() end })
-    ProfTab:CreateDropdown({ Name="Enchant 2", Options=enchantList, CurrentOption=prof.slots[2], MultipleOptions=false, Flag="P"..i.."S2",
+    uiProfileSlot[i][2] = ProfTab:CreateDropdown({ Name="Enchant 2", Options=enchantList, CurrentOption=prof.slots[2], MultipleOptions=false, Flag="P"..i.."S2",
         Callback=function(o) profiles[i].slots[2]=getOpt(o) saveConfig() end })
-    ProfTab:CreateDropdown({ Name="Enchant 3", Options=enchantList, CurrentOption=prof.slots[3], MultipleOptions=false, Flag="P"..i.."S3",
+    uiProfileSlot[i][3] = ProfTab:CreateDropdown({ Name="Enchant 3", Options=enchantList, CurrentOption=prof.slots[3], MultipleOptions=false, Flag="P"..i.."S3",
         Callback=function(o) profiles[i].slots[3]=getOpt(o) saveConfig() end })
 end
 

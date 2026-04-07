@@ -108,63 +108,63 @@ class ControlView(discord.ui.View):
         super().__init__(timeout=None)
         self.username = username
 
-    async def _refresh(self, interaction: discord.Interaction):
+    async def update_message(self, interaction: discord.Interaction):
         await interaction.response.edit_message(embed=control_embed(self.username), view=self)
 
     # Row 0 — Scanner / Farm
     @discord.ui.button(label="▶ Scanner", style=discord.ButtonStyle.green, row=0)
     async def start_scan(self, interaction, _):
         update(self.username, {"scanning": True})
-        await self._refresh(interaction)
+        await self.update_message(interaction)
 
     @discord.ui.button(label="⏹ Scanner", style=discord.ButtonStyle.red, row=0)
     async def stop_scan(self, interaction, _):
         update(self.username, {"scanning": False})
-        await self._refresh(interaction)
+        await self.update_message(interaction)
 
     @discord.ui.button(label="▶ Farm", style=discord.ButtonStyle.green, row=0)
     async def start_farm(self, interaction, _):
         update(self.username, {"farming": True})
-        await self._refresh(interaction)
+        await self.update_message(interaction)
 
     @discord.ui.button(label="⏹ Farm", style=discord.ButtonStyle.red, row=0)
     async def stop_farm(self, interaction, _):
         update(self.username, {"farming": False})
-        await self._refresh(interaction)
+        await self.update_message(interaction)
 
     # Row 1 — Ascender / AutoBank / AutoSell
     @discord.ui.button(label="▶ Ascend", style=discord.ButtonStyle.green, row=1)
     async def start_ascend(self, interaction, _):
         update(self.username, {"ascending": True})
-        await self._refresh(interaction)
+        await self.update_message(interaction)
 
     @discord.ui.button(label="⏹ Ascend", style=discord.ButtonStyle.red, row=1)
     async def stop_ascend(self, interaction, _):
         update(self.username, {"ascending": False})
-        await self._refresh(interaction)
+        await self.update_message(interaction)
 
     @discord.ui.button(label="🏦 AutoBank", style=discord.ButtonStyle.blurple, row=1)
     async def toggle_autobank(self, interaction, _):
         update(self.username, {"auto_bank": not get_state(self.username)["auto_bank"]})
-        await self._refresh(interaction)
+        await self.update_message(interaction)
 
     @discord.ui.button(label="💰 AutoSell", style=discord.ButtonStyle.blurple, row=1)
     async def toggle_autosell(self, interaction, _):
         update(self.username, {"auto_sell": not get_state(self.username)["auto_sell"]})
-        await self._refresh(interaction)
+        await self.update_message(interaction)
 
     # Row 2 — Scan rate
     @discord.ui.button(label="⬅ Scan -0.1s", style=discord.ButtonStyle.grey, row=2)
     async def scan_down(self, interaction, _):
         st = get_state(self.username)
         update(self.username, {"scan_rate": round(max(0.1, st["scan_rate"] - 0.1), 1)})
-        await self._refresh(interaction)
+        await self.update_message(interaction)
 
     @discord.ui.button(label="Scan +0.1s ➡", style=discord.ButtonStyle.grey, row=2)
     async def scan_up(self, interaction, _):
         st = get_state(self.username)
         update(self.username, {"scan_rate": round(min(3.0, st["scan_rate"] + 0.1), 1)})
-        await self._refresh(interaction)
+        await self.update_message(interaction)
 
 # ─── PANEL PROFILS ─────────────────────────────────────────────────────────────
 
@@ -251,14 +251,23 @@ bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
 # ─── HELPER : creation du channel control ──────────────────────────────────────
 
-async def create_control_channel(guild: discord.Guild, username: str) -> discord.TextChannel | None:
+async def create_control_channel(guild: discord.Guild, username: str, member: discord.Member = None) -> discord.TextChannel | None:
     """Cree #control-<username> avec les deux panels. Retourne None si deja existant."""
     channel_name = f"control-{username.lower()}"
     if discord.utils.get(guild.channels, name=channel_name):
         return None
 
     category = guild.get_channel(CONTROL_CATEGORY_ID) if CONTROL_CATEGORY_ID else None
-    channel  = await guild.create_text_channel(channel_name, category=category)
+
+    # Permissions : personne ne voit le channel sauf le membre concerne + le bot
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        guild.me:           discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_messages=True),
+    }
+    if member:
+        overwrites[member] = discord.PermissionOverwrite(view_channel=True, send_messages=False)
+
+    channel = await guild.create_text_channel(channel_name, category=category, overwrites=overwrites)
 
     msg1 = await channel.send(
         content="**Panel de contrôle**",
@@ -291,7 +300,7 @@ class UsernameModal(discord.ui.Modal, title="Ouvrir mon panel TinouHub"):
         username = self.username.value.strip()
         await interaction.response.defer(ephemeral=True)
 
-        channel = await create_control_channel(interaction.guild, username)
+        channel = await create_control_channel(interaction.guild, username, interaction.user)
         if channel is None:
             existing = discord.utils.get(interaction.guild.channels, name=f"control-{username.lower()}")
             await interaction.followup.send(
