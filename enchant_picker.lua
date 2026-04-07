@@ -5,7 +5,7 @@ local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remote
 local remoteFunc   = game:GetService("ReplicatedStorage").Paper.Remotes.__remotefunction
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "0.1.4"
+local VERSION     = "0.1.5"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
