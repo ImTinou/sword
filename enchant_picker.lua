@@ -5,7 +5,7 @@ local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remote
 local remoteFunc   = game:GetService("ReplicatedStorage").Paper.Remotes.__remotefunction
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "0.1.6"
+local VERSION     = "0.2.0"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
@@ -94,6 +94,10 @@ local uiAutoBank, uiAutoSell, uiMatchAll, uiScanRate
 local uiProfileToggle = {}
 local uiProfileSlot   = {}
 
+-- Forward declarations (définies plus bas dans le script)
+local startScan
+local statusLbl
+
 -- Discord remote control (poll Gist toutes les 5s)
 -- Le Gist contient un objet par joueur: { "Username": { id, scanning, ... } }
 local lastCmdId = -1
@@ -120,23 +124,29 @@ task.spawn(function()
             -- Scanner
             if data.scanning ~= nil then
                 if data.scanning and not scanning then
-                    startScan(nil)
+                    startScan(statusLbl)
+                    Rayfield:Notify({Title="Discord", Content="Scanner démarré via Discord", Duration=3})
                 elseif not data.scanning and scanning then
                     scanning = false
+                    Rayfield:Notify({Title="Discord", Content="Scanner arrêté via Discord", Duration=3})
                 end
             end
 
             -- Farm
             if data.farming ~= nil then
-                if not data.farming then
+                if not data.farming and farming then
                     farming = false
+                    Rayfield:Notify({Title="Discord", Content="Farm arrêté via Discord", Duration=3})
+                elseif data.farming and not farming then
+                    Rayfield:Notify({Title="Discord", Content="Farm démarré via Discord", Duration=3})
                 end
             end
 
             -- Ascender
             if data.ascending ~= nil then
-                if not data.ascending then
+                if not data.ascending and ascending then
                     ascending = false
+                    Rayfield:Notify({Title="Discord", Content="Ascender arrêté via Discord", Duration=3})
                 end
             end
 
@@ -147,13 +157,18 @@ task.spawn(function()
 
             -- Profiles
             if type(data.profiles) == "table" then
+                local profileChanged = false
                 for i = 1, 3 do
                     if data.profiles[i] then
                         profiles[i].active = data.profiles[i].active
                         if type(data.profiles[i].slots) == "table" then
                             profiles[i].slots = data.profiles[i].slots
                         end
+                        profileChanged = true
                     end
+                end
+                if profileChanged then
+                    Rayfield:Notify({Title="Discord", Content="Profils mis à jour via Discord", Duration=3})
                 end
             end
 
@@ -559,7 +574,7 @@ local function handleSword(sword, lbl)
     end
 end
 
-local function startScan(lbl)
+startScan = function(lbl)
     scanning = true
 
     -- ChildAdded: instant detection
@@ -627,7 +642,7 @@ Tab:CreateInput({ Name="Webhook URL", PlaceholderText="https://discord.com/api/w
     end })
 
 Tab:CreateSection("Control")
-local statusLbl = Tab:CreateLabel("Status: Ready")
+statusLbl = Tab:CreateLabel("Status: Ready")
 Tab:CreateButton({ Name="Start Scanner", Callback=function()
     if not scanning then startScan(statusLbl) Rayfield:Notify({Title="Scanner", Content="Started!", Duration=2}) end
 end })
