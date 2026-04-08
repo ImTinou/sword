@@ -5,7 +5,7 @@ local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remote
 local remoteFunc   = game:GetService("ReplicatedStorage").Paper.Remotes.__remotefunction
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "0.2.0"
+local VERSION     = "0.3.0"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
@@ -320,10 +320,34 @@ pcall(function()
     })
 end)
 
+-- Mapping enchant ID -> nom (extrait du jeu via place dump)
+local ENCHANT_IDS = {
+    [-1]="Unknown",   [0]="Regular",      [1]="Nice",         [2]="Cool",
+    [3]="Decent",     [4]="Strong",       [5]="Tough",        [6]="Solid",
+    [7]="Powerful",   [8]="Crazy",        [9]="Unstoppable",  [10]="Impossible",
+    [11]="Ethereal",  [12]="Unimaginable",[13]="Outrageous",  [14]="Limitless",
+    [15]="Invincible",[16]="Chaotic",     [17]="Unbeatable",  [18]="Colossal",
+    [19]="Unbreakable",[20]="Indomitable",[21]="Omnipotent",  [22]="Vigorous",
+    [23]="Ruthless",  [24]="Mighty",      [25]="Ferocious",   [26]="Resilient",
+    [27]="Immortal",  [28]="Undying",     [29]="Prime",       [30]="Elite",
+    [31]="Heroic",    [32]="Flawless",    [33]="Remorseless", [34]="Inimitable",
+    [35]="Astronomical",[36]="Astronomical+",[37]="Astronomical++",[38]="Astronomical+3",
+    [39]="Astronomical+4",[40]="Astronomical+5",[41]="Astronomical+6",
+    [42]="Astronomical+7",[43]="Astronomical+8",[44]="Astronomical+9",
+    [45]="Astronomical+10",[46]="Astronomical+11",[47]="Astronomical+12",
+    [48]="Astronomical+13",[49]="Astronomical+14",
+}
+
 local enchantList = {
-    "Any","Fortune","Sharpness","Protection","Haste","Swiftness",
-    "Critical","Resistance","Healing","Looting","Attraction",
-    "Stealth","Ancient","Desperation","Insight","Thorns","Knockback"
+    "Any",
+    "Regular","Nice","Cool","Decent","Strong","Tough","Solid","Powerful",
+    "Crazy","Unstoppable","Impossible","Ethereal","Unimaginable","Outrageous",
+    "Limitless","Invincible","Chaotic","Unbeatable","Colossal","Unbreakable",
+    "Indomitable","Omnipotent","Vigorous","Ruthless","Mighty","Ferocious",
+    "Resilient","Immortal","Undying","Prime","Elite","Heroic","Flawless",
+    "Remorseless","Inimitable","Astronomical","Astronomical+","Astronomical++",
+    "Astronomical+3","Astronomical+4","Astronomical+5","Astronomical+6",
+    "Astronomical+7","Astronomical+8","Astronomical+9","Astronomical+10",
 }
 
 local function isProtected(sword)
@@ -338,7 +362,40 @@ local function isProtected(sword)
 end
 
 
+-- Lit les enchants depuis RS.Stats (direct, pas de dépendance GUI)
+local function getSwordEnchantsFromStats(uuid)
+    local RS = game:GetService("ReplicatedStorage")
+    local stats = RS:FindFirstChild("Stats")
+    if not stats then return nil end
+    local pStats = stats:FindFirstChild(player.Name)
+    if not pStats then return nil end
+    for _, folderName in pairs({"Factory", "Swords", "Selling"}) do
+        local folder = pStats:FindFirstChild(folderName)
+        if folder then
+            local s = folder:FindFirstChild(uuid)
+            if s then
+                local enchants = {}
+                for e = 1, 3 do
+                    local eid = s:GetAttribute("Enchant"..e)
+                    if eid and eid >= 0 then
+                        table.insert(enchants, ENCHANT_IDS[eid] or ("Enchant"..eid))
+                    end
+                end
+                return enchants
+            end
+        end
+    end
+    return nil
+end
+
 local function getSwordEnchants(sword)
+    -- Priorité : RS.Stats (instantané, fiable)
+    local uuid = sword.Name
+    if uuid and #uuid > 10 then
+        local result = getSwordEnchantsFromStats(uuid)
+        if result and #result > 0 then return result end
+    end
+    -- Fallback : GUI (au cas où le sword n'est pas encore dans RS.Stats)
     local ok, children = pcall(function()
         return sword.Main.Gui.ItemInfo.Enchants:GetChildren()
     end)
