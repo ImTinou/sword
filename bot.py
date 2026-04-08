@@ -529,12 +529,11 @@ async def restore_panels():
                         "channel_id": channel.id,
                         "msg_id": new_main.id,
                     }
-                    if len(pins) >= 2:
-                        await channel.send(
-                            content="**Profils d'enchants**",
-                            embed=profiles_embed(real_username),
-                            view=ProfilesView(real_username),
-                        )
+                    await channel.send(
+                        content="**Profils d'enchants**",
+                        embed=profiles_embed(real_username),
+                        view=ProfilesView(real_username),
+                    )
                     # Supprimer les anciens messages
                     try:
                         for old_pin in pins:
