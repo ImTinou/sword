@@ -897,15 +897,8 @@ SettingsTab:CreateButton({ Name="Envoyer un rapport maintenant", Callback=functi
 end })
 
 SettingsTab:CreateSection("Discord Control")
-local function controlStatus() return CONTROL_URL=="" and "Non configure" or "..."..(CONTROL_URL:sub(-24)) end
-local controlLbl = SettingsTab:CreateLabel(controlStatus())
-SettingsTab:CreateInput({ Name="Gist URL (Control)", PlaceholderText="https://gist.githubusercontent.com/...", RemoveTextAfterFocusLost=false, Flag="ControlURL",
-    Callback=function(val)
-        if val=="" then return end
-        CONTROL_URL=val saveConfig()
-        pcall(function() controlLbl:Set(controlStatus()) end)
-        Rayfield:Notify({Title="Discord Control", Content="URL sauvegardee!", Duration=2})
-    end })
+SettingsTab:CreateLabel("Contrôle actif via Gist ID intégré au script.")
+SettingsTab:CreateLabel("Gist ID: "..GIST_ID_LUA:sub(1,8).."...")
 
 SettingsTab:CreateSection("Info")
 SettingsTab:CreateLabel("TinouHub v"..VERSION.." | Sword Factory X")
