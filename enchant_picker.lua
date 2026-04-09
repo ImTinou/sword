@@ -75,13 +75,44 @@ end
 
 loadConfig()
 local VirtualUser = game:GetService("VirtualUser")
+
+-- Anti-AFK: 3 méthodes combinées pour être sûr
+-- 1) Disable le kick AFK natif de Roblox
+local Players = game:GetService("Players")
+Players.LocalPlayer.Idled:Connect(function()
+    if ANTI_AFK then
+        -- Fire un faux input pour reset le timer AFK interne
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton2(Vector2.new())
+    end
+end)
+
+-- 2) Simule un mouvement de caméra toutes les 60s
 task.spawn(function()
     while true do
-        task.wait(60)
+        task.wait(55)
         if ANTI_AFK then
-            VirtualUser:Button2Down(workspace.CurrentCamera.ViewportSize / 2, workspace.CurrentCamera.CFrame)
-            task.wait(0.5)
-            VirtualUser:Button2Up(workspace.CurrentCamera.ViewportSize / 2, workspace.CurrentCamera.CFrame)
+            local cam = workspace.CurrentCamera
+            VirtualUser:Button2Down(cam.ViewportSize / 2, cam.CFrame)
+            task.wait(0.1)
+            VirtualUser:Button2Up(cam.ViewportSize / 2, cam.CFrame)
+            -- Simule aussi un petit mouvement pour reset le timer Roblox
+            VirtualUser:Button1Down(cam.ViewportSize / 2, cam.CFrame)
+            task.wait(0.05)
+            VirtualUser:Button1Up(cam.ViewportSize / 2, cam.CFrame)
+        end
+    end
+end)
+
+-- 3) Jump aléatoire toutes les 3-4 min pour paraître actif
+task.spawn(function()
+    while true do
+        task.wait(math.random(170, 230))
+        if ANTI_AFK then
+            pcall(function()
+                local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+                if hum then hum.Jump = true end
+            end)
         end
     end
 end)
