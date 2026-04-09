@@ -5,7 +5,7 @@ local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remote
 local remoteFunc   = game:GetService("ReplicatedStorage").Paper.Remotes.__remotefunction
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "0.4.0"
+local VERSION     = "0.4.1"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
@@ -181,6 +181,40 @@ task.spawn(function()
             if data.auto_bank ~= nil then AUTO_BANK = data.auto_bank end
             if data.auto_sell ~= nil then AUTO_SELL = data.auto_sell end
             if data.scan_rate ~= nil and data.scan_rate > 0 then SCAN_RATE = data.scan_rate end
+
+            -- Actions one-shot Discord
+            if data.bank_all then
+                task.spawn(function()
+                    local pStats = game:GetService("ReplicatedStorage"):FindFirstChild("Stats") and
+                        game:GetService("ReplicatedStorage").Stats:FindFirstChild(player.Name)
+                    local factory = pStats and pStats:FindFirstChild("Factory")
+                    if not factory then return end
+                    local count = 0
+                    for _, s in pairs(factory:GetChildren()) do
+                        pcall(function() remote:FireServer("Set Hotbar", s.Name, "Inventory") end)
+                        count = count + 1
+                        task.wait(0.15)
+                    end
+                    Rayfield:Notify({Title="Discord", Content="Bank All: "..count.." swords!", Duration=3})
+                end)
+            end
+
+            if data.sell_all then
+                task.spawn(function()
+                    pcall(function() remoteFunc:InvokeServer("Sell All") end)
+                    Rayfield:Notify({Title="Discord", Content="Sell All exécuté!", Duration=3})
+                end)
+            end
+
+            if data.spawn_spam then
+                task.spawn(function()
+                    for i = 1, 10 do
+                        pcall(function() remoteFunc:InvokeServer("Spawn Sword") end)
+                        task.wait(0.4)
+                    end
+                    Rayfield:Notify({Title="Discord", Content="Spawn Spam x10!", Duration=3})
+                end)
+            end
 
             -- Profiles
             if type(data.profiles) == "table" then

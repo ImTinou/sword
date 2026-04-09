@@ -60,10 +60,11 @@ CONTROL_CATEGORY_ID = config.CONTROL_CATEGORY_ID
 # ───────────────────────────────────────────────────────────────────────────────
 
 ENCHANTS = [
-    "Fortune","Sharpness","Protection","Haste","Swiftness",
-    "Critical","Resistance","Healing","Looting","Attraction",
-    "Stealth","Ancient","Desperation","Insight","Thorns","Knockback"
-]  # "Any" est gere implicitement (slots non remplis = Any)
+    "Regular","Nice","Cool","Decent","Strong","Tough","Solid","Powerful",
+    "Crazy","Unstoppable","Impossible","Ethereal","Unimaginable","Outrageous",
+    "Limitless","Invincible","Chaotic","Unbeatable","Colossal","Unbreakable",
+    "Indomitable","Omnipotent","Vigorous","Astronomical",
+]  # max 24 + "Any" = 25 (limite Discord Select)
 
 # ─── STATE ─────────────────────────────────────────────────────────────────────
 
@@ -200,6 +201,22 @@ class ControlView(discord.ui.View):
         st = get_state(self.username)
         await update(self.username,{"scan_rate": round(min(3.0, st["scan_rate"] + 0.1), 1)})
         await self.update_message(interaction)
+
+    # Row 3 — Actions rapides
+    @discord.ui.button(label="🏭 Bank All Factory", style=discord.ButtonStyle.blurple, row=3)
+    async def bank_all_factory(self, interaction, _):
+        await update(self.username, {"bank_all": True})
+        await interaction.response.send_message("✅ Bank All envoyé au jeu!", ephemeral=True, delete_after=4)
+
+    @discord.ui.button(label="💸 Sell All", style=discord.ButtonStyle.blurple, row=3)
+    async def sell_all(self, interaction, _):
+        await update(self.username, {"sell_all": True})
+        await interaction.response.send_message("✅ Sell All envoyé au jeu!", ephemeral=True, delete_after=4)
+
+    @discord.ui.button(label="🔄 Spawn Spam", style=discord.ButtonStyle.grey, row=3)
+    async def spawn_spam(self, interaction, _):
+        await update(self.username, {"spawn_spam": True})
+        await interaction.response.send_message("✅ Spawn Spam envoyé!", ephemeral=True, delete_after=4)
 
 # ─── PANEL PROFILS ─────────────────────────────────────────────────────────────
 
@@ -441,10 +458,10 @@ async def fetch_game_state() -> dict:
                     headers={"Authorization": f"token {GITHUB_TOKEN}", "Cache-Control": "no-cache"},
                     timeout=15,
                 )
-            except requests.exceptions.Timeout:
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
                 if attempt == 2:
                     raise
-                time.sleep(2)
+                time.sleep(3)
     try:
         r = await asyncio.to_thread(_get)
     except Exception:
