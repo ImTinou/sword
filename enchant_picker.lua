@@ -5,7 +5,7 @@ local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remote
 local remoteFunc   = game:GetService("ReplicatedStorage").Paper.Remotes.__remotefunction
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "0.3.1"
+local VERSION     = "0.3.2"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
@@ -574,6 +574,67 @@ local function sendAscenderWebhook(sword, quality, attempts)
 end
 
 local childAddedConn = nil
+local factoryConn    = nil
+
+-- Vérifie un sword depuis RS.Stats directement (Factory/Selling)
+-- Retourne les enchants ou nil
+local function getStatsEnchants(uuid)
+    local RS = game:GetService("ReplicatedStorage")
+    local pStats = RS:FindFirstChild("Stats") and RS.Stats:FindFirstChild(player.Name)
+    if not pStats then return nil end
+    for _, folder in pairs({"Factory", "Selling", "Swords"}) do
+        local f = pStats:FindFirstChild(folder)
+        if f then
+            local s = f:FindFirstChild(uuid)
+            if s then
+                local enc = {}
+                for e = 1, 4 do
+                    local eid = s:GetAttribute("Enchant"..e)
+                    if eid and eid >= 0 then
+                        table.insert(enc, ENCHANT_IDS[eid] or ("E"..eid))
+                    end
+                end
+                return #enc > 0 and enc or nil
+            end
+        end
+    end
+    return nil
+end
+
+-- Vérifie si les enchants d'un UUID matchent un profil actif
+local function statsUuidMatches(uuid)
+    local enchants = getStatsEnchants(uuid)
+    if not enchants then return false, {} end
+    -- Fake sword object pour profileMatches
+    local fakeEnchants = enchants
+    if MATCH_ALL then
+        for _, prof in ipairs(profiles) do
+            if not prof.active then continue end
+            local needed = {}
+            for _, s in pairs(prof.slots) do
+                if s ~= "Any" then needed[s] = (needed[s] or 0) + 1 end
+            end
+            local ok = true
+            for e, c in pairs(needed) do
+                local cnt = 0
+                for _, n in pairs(fakeEnchants) do if n == e then cnt = cnt + 1 end end
+                if cnt < c then ok = false break end
+            end
+            if ok then return true, fakeEnchants end
+        end
+    else
+        for _, prof in ipairs(profiles) do
+            if not prof.active then continue end
+            for _, s in pairs(prof.slots) do
+                if s == "Any" then return true, fakeEnchants end
+                for _, n in pairs(fakeEnchants) do
+                    if n == s then return true, fakeEnchants end
+                end
+            end
+        end
+    end
+    return false, fakeEnchants
+end
 
 local function handleSword(sword, lbl)
     if not scanning then return end
@@ -596,8 +657,63 @@ local function handleSword(sword, lbl)
     end
 end
 
+-- Auto-collect factory: surveille RS.Stats.Factory pour les swords qui matchent
+-- et les bank/sell directement sans flyPickup
+local function startFactoryCollect(lbl)
+    local RS = game:GetService("ReplicatedStorage")
+    local pStats = RS:WaitForChild("Stats"):WaitForChild(player.Name)
+    local factoryFolder = pStats:WaitForChild("Factory")
+
+    local function checkFactoryUUID(uuid)
+        if not scanning then return end
+        task.wait(0.5) -- attend que les enchants soient chargés
+        local matched, enchants = statsUuidMatches(uuid)
+        if matched then
+            totalPicked = totalPicked + 1
+            pcall(function() lbl:Set("Factory snipe! Total: "..totalPicked) end)
+            Rayfield:Notify({Title="Factory Snipe!", Content=table.concat(enchants,", "), Duration=3})
+            if AUTO_BANK then
+                pcall(function() remote:FireServer("Set Hotbar", uuid, "Inventory") end)
+                task.wait(0.3)
+                if AUTO_SELL then
+                    pcall(function() remoteFunc:InvokeServer("Sell All") end)
+                end
+            end
+            -- Webhook
+            if WEBHOOK_URL ~= "" then
+                pcall(function()
+                    request({
+                        Url = WEBHOOK_URL, Method = "POST",
+                        Headers = {["Content-Type"]="application/json"},
+                        Body = HS:JSONEncode({ username="TinouHUB", embeds={{
+                            title = "Factory Snipe — "..uuid:sub(1,8),
+                            description = "**"..player.Name.."** banked a factory sword!",
+                            color = 3066993,
+                            fields = {{ name="Enchants", value=table.concat(enchants,", "), inline=true }},
+                            footer = { text="TinouHub v"..VERSION },
+                            timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+                        }}})
+                    })
+                end)
+            end
+        end
+    end
+
+    -- Check tous les swords déjà en factory
+    for _, s in pairs(factoryFolder:GetChildren()) do
+        task.spawn(checkFactoryUUID, s.Name)
+    end
+
+    -- Hook les nouveaux
+    if factoryConn then factoryConn:Disconnect() end
+    factoryConn = factoryFolder.ChildAdded:Connect(function(s)
+        task.spawn(checkFactoryUUID, s.Name)
+    end)
+end
+
 startScan = function(lbl)
     scanning = true
+    startFactoryCollect(lbl)
 
     -- ChildAdded: instant detection
     if childAddedConn then childAddedConn:Disconnect() end
@@ -620,6 +736,7 @@ startScan = function(lbl)
             task.wait(SCAN_RATE)
         end
         if childAddedConn then childAddedConn:Disconnect() end
+        if factoryConn    then factoryConn:Disconnect() end
         pcall(function() lbl:Set("Stopped | Total: "..totalPicked) end)
     end)
 end
@@ -1103,8 +1220,8 @@ UpgTab:CreateButton({ Name="Stop Auto-Upgrade", Callback=function()
 end })
 
 UpgTab:CreateSection("Exploits")
+
 UpgTab:CreateButton({ Name="Bypass AutoSpawn Cap (x20)", Callback=function()
-    -- Le cap level 10 est client-side seulement, le serveur ne vérifie pas
     task.spawn(function()
         for i = 1, 20 do
             pcall(function() remoteFunc:InvokeServer("Upgrade AutoSpawn") end)
@@ -1113,8 +1230,8 @@ UpgTab:CreateButton({ Name="Bypass AutoSpawn Cap (x20)", Callback=function()
         Rayfield:Notify({Title="AutoSpawn", Content="20 upgrades envoyés!", Duration=3})
     end)
 end })
+
 UpgTab:CreateButton({ Name="Bulk Buy All Machines (x50)", Callback=function()
-    -- Purchase All Upgrade = achat en masse, pas de vérif coût client-side
     task.spawn(function()
         for _, m in ipairs({"Conveyor","Appraiser","Polisher","Upgrader","Molder","Classifier","Enchanter"}) do
             pcall(function() remoteFunc:InvokeServer("Purchase All Upgrade", m, 50) end)
@@ -1123,13 +1240,68 @@ UpgTab:CreateButton({ Name="Bulk Buy All Machines (x50)", Callback=function()
         Rayfield:Notify({Title="Upgrade", Content="Bulk buy envoyé!", Duration=3})
     end)
 end })
+
 UpgTab:CreateButton({ Name="Spawn Sword (spam x10)", Callback=function()
-    -- Bypass check client-side IsInUse, fire direct
     task.spawn(function()
         for i = 1, 10 do
             pcall(function() remoteFunc:InvokeServer("Spawn Sword") end)
             task.wait(0.4)
         end
         Rayfield:Notify({Title="Spawn", Content="10 spawn envoyés!", Duration=3})
+    end)
+end })
+
+-- Bank TOUS les swords de la factory d'un coup (sans flyPickup)
+UpgTab:CreateButton({ Name="Bank All Factory Swords", Callback=function()
+    task.spawn(function()
+        local RS = game:GetService("ReplicatedStorage")
+        local pStats = RS:FindFirstChild("Stats") and RS.Stats:FindFirstChild(player.Name)
+        local factory = pStats and pStats:FindFirstChild("Factory")
+        if not factory then
+            Rayfield:Notify({Title="Factory", Content="Pas de factory trouvée!", Duration=3})
+            return
+        end
+        local count = 0
+        for _, s in pairs(factory:GetChildren()) do
+            pcall(function() remote:FireServer("Set Hotbar", s.Name, "Inventory") end)
+            count = count + 1
+            task.wait(0.15)
+        end
+        Rayfield:Notify({Title="Factory", Content=count.." swords bankés!", Duration=3})
+    end)
+end })
+
+-- Sell ALL factory swords directement
+UpgTab:CreateButton({ Name="Sell All Factory Swords", Callback=function()
+    task.spawn(function()
+        local RS = game:GetService("ReplicatedStorage")
+        local pStats = RS:FindFirstChild("Stats") and RS.Stats:FindFirstChild(player.Name)
+        local factory = pStats and pStats:FindFirstChild("Factory")
+        if not factory then return end
+        for _, s in pairs(factory:GetChildren()) do
+            pcall(function() remote:FireServer("Set Hotbar", s.Name, "Inventory") end)
+            task.wait(0.1)
+        end
+        task.wait(0.3)
+        pcall(function() remoteFunc:InvokeServer("Sell All") end)
+        Rayfield:Notify({Title="Factory", Content="Tous vendus!", Duration=3})
+    end)
+end })
+
+-- Max SellSpeed setting (0.05 = vitesse max, défaut = 1)
+UpgTab:CreateButton({ Name="Max Sell Speed", Callback=function()
+    pcall(function() remote:FireServer("Change Setting", "SellSpeedSetting", 0.05) end)
+    Rayfield:Notify({Title="Exploit", Content="SellSpeed → 0.05", Duration=3})
+end })
+
+-- Upgrade Sell Station + Bank Station spam
+UpgTab:CreateButton({ Name="Upgrade Sell+Bank Stations", Callback=function()
+    task.spawn(function()
+        for i = 1, 30 do
+            pcall(function() remoteFunc:InvokeServer("Upgrade Sell") end)
+            pcall(function() remoteFunc:InvokeServer("Upgrade Bank") end)
+            task.wait(0.3)
+        end
+        Rayfield:Notify({Title="Upgrade", Content="Sell+Bank x30!", Duration=3})
     end)
 end })
