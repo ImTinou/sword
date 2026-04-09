@@ -126,9 +126,27 @@ local uiProfileSlot   = {}
 local startScan
 local statusLbl
 
--- Discord remote control (poll Gist toutes les 5s)
--- Le Gist contient un objet par joueur: { "Username": { id, scanning, ... } }
+-- Discord remote control (poll Gist toutes les 15s)
 local lastCmdId = -1
+
+-- Au lancement : lire l'id actuel du Gist pour ne pas rejouer la dernière commande
+task.spawn(function()
+    task.wait(2) -- attendre que le réseau soit dispo
+    pcall(function()
+        local res = request({ Url = "https://api.github.com/gists/" .. GIST_ID_LUA, Method = "GET",
+            Headers = { ["Cache-Control"] = "no-cache", ["User-Agent"] = "TinouHub/1.0" } })
+        if not res or res.StatusCode ~= 200 then return end
+        local gist = HS:JSONDecode(res.Body)
+        local fc = gist.files and gist.files["sword_control.json"] and gist.files["sword_control.json"].content
+        if not fc then return end
+        local root = HS:JSONDecode(fc)
+        local data = root[player.Name]
+        if type(data) == "table" and type(data.id) == "number" then
+            lastCmdId = data.id  -- skip les anciennes commandes
+        end
+    end)
+end)
+
 task.spawn(function()
     while true do
         task.wait(15)
