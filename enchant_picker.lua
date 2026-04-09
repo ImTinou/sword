@@ -5,7 +5,7 @@ local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remote
 local remoteFunc   = game:GetService("ReplicatedStorage").Paper.Remotes.__remotefunction
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "0.3.2"
+local VERSION     = "0.4.0"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
@@ -1177,12 +1177,12 @@ end })
 
 -- ===================== AUTO-UPGRADE =====================
 local autoUpgrading = false
-local upgEnabled = { Conveyor=false, Appraiser=false, Polisher=false, Upgrader=false, Molder=false, Classifier=false, Enchanter=false }
+local upgEnabled = { Conveyor=false, Appraiser=false, Polisher=false, Upgrader=false, Molder=false, Classifier=false, Enchanter=false, Ascender=false }
 
 local UpgTab = Window:CreateTab("Upgrade", "wrench")
 
 UpgTab:CreateSection("Machines")
-for _, machine in ipairs({"Conveyor","Appraiser","Polisher","Upgrader","Molder","Classifier","Enchanter"}) do
+for _, machine in ipairs({"Conveyor","Appraiser","Polisher","Upgrader","Molder","Classifier","Enchanter","Ascender"}) do
     local m = machine
     UpgTab:CreateToggle({ Name=m, CurrentValue=false, Flag="Upg"..m, Callback=function(v) upgEnabled[m]=v end })
 end
@@ -1190,7 +1190,7 @@ end
 UpgTab:CreateSection("Control")
 local upgStatusLbl = UpgTab:CreateLabel("Auto-Upgrade: Idle")
 UpgTab:CreateButton({ Name="Upgrade Now", Callback=function()
-    for _, m in ipairs({"Conveyor","Appraiser","Polisher","Upgrader","Molder","Classifier","Enchanter"}) do
+    for _, m in ipairs({"Conveyor","Appraiser","Polisher","Upgrader","Molder","Classifier","Enchanter","Ascender"}) do
         if upgEnabled[m] then pcall(function() remoteFunc:InvokeServer("Upgrade Machine", m, 1) end) end
     end
     Rayfield:Notify({Title="Upgrade", Content="Done!", Duration=2})
@@ -1201,7 +1201,7 @@ UpgTab:CreateButton({ Name="Start Auto-Upgrade", Callback=function()
     task.spawn(function()
         while autoUpgrading do
             local upgraded={}
-            for _, m in ipairs({"Conveyor","Appraiser","Polisher","Upgrader","Molder","Classifier","Enchanter"}) do
+            for _, m in ipairs({"Conveyor","Appraiser","Polisher","Upgrader","Molder","Classifier","Enchanter","Ascender"}) do
                 if upgEnabled[m] then
                     pcall(function() remoteFunc:InvokeServer("Upgrade Machine", m, 1) end)
                     table.insert(upgraded, m)
@@ -1233,7 +1233,7 @@ end })
 
 UpgTab:CreateButton({ Name="Bulk Buy All Machines (x50)", Callback=function()
     task.spawn(function()
-        for _, m in ipairs({"Conveyor","Appraiser","Polisher","Upgrader","Molder","Classifier","Enchanter"}) do
+        for _, m in ipairs({"Conveyor","Appraiser","Polisher","Upgrader","Molder","Classifier","Enchanter","Ascender"}) do
             pcall(function() remoteFunc:InvokeServer("Purchase All Upgrade", m, 50) end)
             task.wait(0.5)
         end
@@ -1304,4 +1304,124 @@ UpgTab:CreateButton({ Name="Upgrade Sell+Bank Stations", Callback=function()
         end
         Rayfield:Notify({Title="Upgrade", Content="Sell+Bank x30!", Duration=3})
     end)
+end })
+
+-- ===================== MISC / PLAYER =====================
+local MiscTab = Window:CreateTab("Misc", "zap")
+
+MiscTab:CreateSection("Player")
+
+local speedEnabled = false
+local noclipEnabled = false
+local origSpeed = 16
+local origJump  = 50
+
+local function getHum()
+    local c = player.Character
+    return c and c:FindFirstChildOfClass("Humanoid")
+end
+
+local uiSpeed = MiscTab:CreateSlider({ Name="WalkSpeed", Range={16,300}, Increment=4, CurrentValue=16, Flag="WalkSpeed",
+    Callback=function(v)
+        pcall(function()
+            local hum = getHum()
+            if hum then hum.WalkSpeed = v end
+        end)
+    end
+})
+
+local uiJump = MiscTab:CreateSlider({ Name="JumpPower", Range={50,500}, Increment=10, CurrentValue=50, Flag="JumpPower",
+    Callback=function(v)
+        pcall(function()
+            local hum = getHum()
+            if hum then hum.JumpPower = v end
+        end)
+    end
+})
+
+-- Respawn remet les valeurs → les remettre à chaque respawn
+player.CharacterAdded:Connect(function(char)
+    task.wait(0.5)
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        if speedEnabled then hum.WalkSpeed = origSpeed end
+        if noclipEnabled then
+            game:GetService("RunService").Stepped:Connect(function()
+                for _, p in pairs(char:GetDescendants()) do
+                    if p:IsA("BasePart") then p.CanCollide = false end
+                end
+            end)
+        end
+    end
+end)
+
+MiscTab:CreateToggle({ Name="Noclip", CurrentValue=false, Flag="Noclip",
+    Callback=function(v)
+        noclipEnabled = v
+        if v then
+            game:GetService("RunService").Stepped:Connect(function()
+                if not noclipEnabled then return end
+                local char = player.Character
+                if not char then return end
+                for _, p in pairs(char:GetDescendants()) do
+                    if p:IsA("BasePart") then p.CanCollide = false end
+                end
+            end)
+            Rayfield:Notify({Title="Noclip", Content="ON", Duration=2})
+        else
+            -- Re-enable collision
+            local char = player.Character
+            if char then
+                for _, p in pairs(char:GetDescendants()) do
+                    if p:IsA("BasePart") then p.CanCollide = true end
+                end
+            end
+            Rayfield:Notify({Title="Noclip", Content="OFF", Duration=2})
+        end
+    end
+})
+
+MiscTab:CreateToggle({ Name="Infinite Jump", CurrentValue=false, Flag="InfJump",
+    Callback=function(v)
+        if v then
+            game:GetService("UserInputService").JumpRequest:Connect(function()
+                local hum = getHum()
+                if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+            end)
+            Rayfield:Notify({Title="Infinite Jump", Content="ON", Duration=2})
+        end
+    end
+})
+
+MiscTab:CreateSection("Teleport")
+
+MiscTab:CreateButton({ Name="TP to Base", Callback=function()
+    pcall(function() remoteFunc:InvokeServer("Teleport In Base", "Home") end)
+    Rayfield:Notify({Title="TP", Content="→ Base", Duration=2})
+end })
+
+for zoneName, zoneId in pairs(zoneIds) do
+    local zn = zoneName
+    local zi = zoneId
+    MiscTab:CreateButton({ Name="TP → "..zn, Callback=function()
+        pcall(function() remoteFunc:InvokeServer("Teleport Area", zi) end)
+        Rayfield:Notify({Title="TP", Content="→ "..zn, Duration=2})
+    end })
+end
+
+MiscTab:CreateSection("Actions")
+
+MiscTab:CreateButton({ Name="Sell All (inventaire)", Callback=function()
+    pcall(function() remoteFunc:InvokeServer("Sell All") end)
+    Rayfield:Notify({Title="Sell", Content="Sold!", Duration=2})
+end })
+
+MiscTab:CreateButton({ Name="Drop Sword équipé", Callback=function()
+    pcall(function() remote:FireServer("Drop Sword") end)
+    Rayfield:Notify({Title="Drop", Content="Dropped!", Duration=2})
+end })
+
+MiscTab:CreateButton({ Name="Unequip tout", Callback=function()
+    pcall(function() remote:FireServer("Unequip All") end)
+    Rayfield:Notify({Title="Unequip", Content="Done!", Duration=2})
 end })
