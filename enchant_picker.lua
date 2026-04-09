@@ -5,7 +5,7 @@ local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remote
 local remoteFunc   = game:GetService("ReplicatedStorage").Paper.Remotes.__remotefunction
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "0.3.0"
+local VERSION     = "0.3.1"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
@@ -362,40 +362,7 @@ local function isProtected(sword)
 end
 
 
--- Lit les enchants depuis RS.Stats (direct, pas de dépendance GUI)
-local function getSwordEnchantsFromStats(uuid)
-    local RS = game:GetService("ReplicatedStorage")
-    local stats = RS:FindFirstChild("Stats")
-    if not stats then return nil end
-    local pStats = stats:FindFirstChild(player.Name)
-    if not pStats then return nil end
-    for _, folderName in pairs({"Factory", "Swords", "Selling"}) do
-        local folder = pStats:FindFirstChild(folderName)
-        if folder then
-            local s = folder:FindFirstChild(uuid)
-            if s then
-                local enchants = {}
-                for e = 1, 3 do
-                    local eid = s:GetAttribute("Enchant"..e)
-                    if eid and eid >= 0 then
-                        table.insert(enchants, ENCHANT_IDS[eid] or ("Enchant"..eid))
-                    end
-                end
-                return enchants
-            end
-        end
-    end
-    return nil
-end
-
 local function getSwordEnchants(sword)
-    -- Priorité : RS.Stats (instantané, fiable)
-    local uuid = sword.Name
-    if uuid and #uuid > 10 then
-        local result = getSwordEnchantsFromStats(uuid)
-        if result and #result > 0 then return result end
-    end
-    -- Fallback : GUI (au cas où le sword n'est pas encore dans RS.Stats)
     local ok, children = pcall(function()
         return sword.Main.Gui.ItemInfo.Enchants:GetChildren()
     end)
@@ -562,7 +529,10 @@ local function getAscenderSword()
     if not ascFolder then return nil end
     local children = ascFolder:GetChildren()
     if #children == 0 then return nil end
-    return workspace.Swords:FindFirstChild(children[1].Name)
+    local uuid = children[1].Name
+    local sword = workspace.Swords:FindFirstChild(uuid)
+    if sword then return sword end
+    return workspace:FindFirstChild(uuid, true)
 end
 
 local function sendAscenderWebhook(sword, quality, attempts)
@@ -970,35 +940,52 @@ FarmTab:CreateButton({
         task.spawn(function()
             local killed = 0
             while farming do
+                if not player.Character then task.wait(1) continue end
+
                 local npcs = getNpcsInZone()
                 if #npcs == 0 then
-                    pcall(function() farmStatusLbl:Set("No mobs found...") end)
+                    -- Auto-TP vers la zone sélectionnée
+                    pcall(function()
+                        local id = zoneIds[selectedZone]
+                        if id then remoteFunc:InvokeServer("Teleport Area", id) end
+                    end)
+                    pcall(function() farmStatusLbl:Set("Aucun mob → TP "..selectedZone) end)
                     task.wait(2)
                     continue
                 end
+
                 for _, npc in ipairs(npcs) do
                     if not farming then break end
+                    if not npc.Parent then continue end
                     local hum = npc:FindFirstChildOfClass("Humanoid")
                     if not hum or hum.Health <= 0 then continue end
-                    -- TP once under the mob
+
+                    expandHitbox(npc)
                     goUnderNpc(npc)
-                    while hum.Health > 0 and farming do
+
+                    while npc.Parent and hum.Health > 0 and farming do
+                        if not player.Character then break end
+
                         if getHpPct() < MIN_HP_PCT then
                             retreatAndHeal(farmStatusLbl)
                             if not farming then break end
+                            if not npc.Parent or hum.Health <= 0 then break end
                             goUnderNpc(npc)
                         end
-                        -- Reposition only if knocked far away
+
                         local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
                         local npcRoot = npc:FindFirstChild("HumanoidRootPart")
-                        if hrp and npcRoot and (hrp.Position - npcRoot.Position).Magnitude > FARM_Y_OFFSET + 10 then
+                        if hrp and npcRoot and (hrp.Position - npcRoot.Position).Magnitude > FARM_REACH + 5 then
                             goUnderNpc(npc)
                         end
+
                         activateTool()
-                        task.wait(0.15)
+                        task.wait(0.1)
                     end
-                    if hum.Health <= 0 then
+
+                    if not npc.Parent or hum.Health <= 0 then
                         killed = killed + 1
+                        expandedNpcs[npc] = nil  -- reset pour re-expansion si respawn
                         pcall(function()
                             farmStatusLbl:Set("Kills: "..killed.." | HP: "..math.floor(getHpPct()*100).."%")
                         end)
@@ -1037,10 +1024,19 @@ AscTab:CreateButton({ Name="Start Auto-Ascend", Callback=function()
     ascending=true ascAttempts=0
     task.spawn(function()
         while ascending do
-            local s=getAscenderSword()
-            if not s then ascending=false pcall(function() ascStatusLbl:Set("Sword not found") end) break end
-            local q=stripRichText(s.Main.Gui.ItemInfo.RarityQuality.Text)
-            if qualityRank(q)>=qualityRank(targetQuality) then
+            local s = getAscenderSword()
+            if not s then
+                task.wait(1)
+                s = getAscenderSword()
+                if not s then
+                    ascending=false
+                    pcall(function() ascStatusLbl:Set("Sword introuvable") end)
+                    break
+                end
+            end
+            local q = "?"
+            pcall(function() q = stripRichText(s.Main.Gui.ItemInfo.RarityQuality.Text) end)
+            if qualityRank(q) >= qualityRank(targetQuality) then
                 ascending=false
                 pcall(function() ascStatusLbl:Set("Done! "..q.." | "..ascAttempts.." tries") end)
                 Rayfield:Notify({Title="Ascender", Content=q.." in "..ascAttempts.." tries!", Duration=6})
@@ -1049,13 +1045,17 @@ AscTab:CreateButton({ Name="Start Auto-Ascend", Callback=function()
             pcall(function() remote:FireServer("Set Ascender Mode", ascMode) end)
             ascAttempts=ascAttempts+1
             pcall(function() ascStatusLbl:Set(q.." | "..ascAttempts.." tries") end)
-            task.wait(0.12)
+            task.wait(0.15)
         end
         ascending=false
     end)
     Rayfield:Notify({Title="Ascender", Content="Started!", Duration=2})
 end })
 AscTab:CreateButton({ Name="Stop", Callback=function() ascending=false Rayfield:Notify({Title="Ascender", Content="Stopped.", Duration=2}) end })
+AscTab:CreateButton({ Name="Pickup Ascender Sword", Callback=function()
+    local ok, err = pcall(function() remoteFunc:InvokeServer("Pickup Ascender") end)
+    Rayfield:Notify({Title="Ascender", Content=ok and "Picked up!" or tostring(err), Duration=3})
+end })
 
 -- ===================== AUTO-UPGRADE =====================
 local autoUpgrading = false
@@ -1099,4 +1099,36 @@ UpgTab:CreateButton({ Name="Start Auto-Upgrade", Callback=function()
 end })
 UpgTab:CreateButton({ Name="Stop Auto-Upgrade", Callback=function()
     autoUpgrading=false Rayfield:Notify({Title="Upgrade", Content="Stopped.", Duration=2})
+end })
+
+UpgTab:CreateSection("Exploits")
+UpgTab:CreateButton({ Name="Bypass AutoSpawn Cap (x20)", Callback=function()
+    -- Le cap level 10 est client-side seulement, le serveur ne vérifie pas
+    task.spawn(function()
+        for i = 1, 20 do
+            pcall(function() remoteFunc:InvokeServer("Upgrade AutoSpawn") end)
+            task.wait(0.3)
+        end
+        Rayfield:Notify({Title="AutoSpawn", Content="20 upgrades envoyés!", Duration=3})
+    end)
+end })
+UpgTab:CreateButton({ Name="Bulk Buy All Machines (x50)", Callback=function()
+    -- Purchase All Upgrade = achat en masse, pas de vérif coût client-side
+    task.spawn(function()
+        for _, m in ipairs({"Conveyor","Appraiser","Polisher","Upgrader","Molder","Classifier","Enchanter"}) do
+            pcall(function() remoteFunc:InvokeServer("Purchase All Upgrade", m, 50) end)
+            task.wait(0.5)
+        end
+        Rayfield:Notify({Title="Upgrade", Content="Bulk buy envoyé!", Duration=3})
+    end)
+end })
+UpgTab:CreateButton({ Name="Spawn Sword (spam x10)", Callback=function()
+    -- Bypass check client-side IsInUse, fire direct
+    task.spawn(function()
+        for i = 1, 10 do
+            pcall(function() remoteFunc:InvokeServer("Spawn Sword") end)
+            task.wait(0.4)
+        end
+        Rayfield:Notify({Title="Spawn", Content="10 spawn envoyés!", Duration=3})
+    end)
 end })
