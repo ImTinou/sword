@@ -434,12 +434,21 @@ async def cmd_delcontrol(ctx, username: str):
 async def fetch_game_state() -> dict:
     """Recupere l'etat in-game depuis le Gist."""
     def _get():
-        return requests.get(
-            f"https://api.github.com/gists/{GIST_ID}",
-            headers={"Authorization": f"token {GITHUB_TOKEN}", "Cache-Control": "no-cache"},
-            timeout=5,
-        )
-    r = await asyncio.to_thread(_get)
+        for attempt in range(3):
+            try:
+                return requests.get(
+                    f"https://api.github.com/gists/{GIST_ID}",
+                    headers={"Authorization": f"token {GITHUB_TOKEN}", "Cache-Control": "no-cache"},
+                    timeout=15,
+                )
+            except requests.exceptions.Timeout:
+                if attempt == 2:
+                    raise
+                time.sleep(2)
+    try:
+        r = await asyncio.to_thread(_get)
+    except Exception:
+        return {}
     if r.status_code != 200:
         return {}
     try:
@@ -495,7 +504,7 @@ async def restore_panels():
         def _read():
             return requests.get(
                 f"https://api.github.com/gists/{GIST_ID}",
-                headers={"Authorization": f"token {GITHUB_TOKEN}", "Cache-Control": "no-cache"}, timeout=5
+                headers={"Authorization": f"token {GITHUB_TOKEN}", "Cache-Control": "no-cache"}, timeout=15
             )
         r = await asyncio.to_thread(_read)
         if r.status_code == 200:
