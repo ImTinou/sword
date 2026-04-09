@@ -1452,6 +1452,26 @@ MiscTab:CreateButton({ Name="Drop Sword équipé", Callback=function()
     Rayfield:Notify({Title="Drop", Content="Dropped!", Duration=2})
 end })
 
+MiscTab:CreateButton({ Name="Drop ALL inventaire", Callback=function()
+    task.spawn(function()
+        local RS = game:GetService("ReplicatedStorage")
+        local pStats = RS:FindFirstChild("Stats") and RS.Stats:FindFirstChild(player.Name)
+        if not pStats then return end
+        local swords = pStats:FindFirstChild("Swords")
+        if not swords then
+            Rayfield:Notify({Title="Drop All", Content="Inventaire vide!", Duration=2})
+            return
+        end
+        local count = 0
+        for _, s in pairs(swords:GetChildren()) do
+            pcall(function() remote:FireServer("Drop Sword", s.Name) end)
+            count = count + 1
+            task.wait(0.1)
+        end
+        Rayfield:Notify({Title="Drop All", Content=count.." swords droppés!", Duration=3})
+    end)
+end })
+
 MiscTab:CreateButton({ Name="Unequip tout", Callback=function()
     pcall(function() remote:FireServer("Unequip All") end)
     Rayfield:Notify({Title="Unequip", Content="Done!", Duration=2})
