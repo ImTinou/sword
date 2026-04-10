@@ -1455,6 +1455,66 @@ end })
 -- ===================== MISC / PLAYER =====================
 local MiscTab = Window:CreateTab("Misc", "zap")
 
+MiscTab:CreateSection("💀 Kill Scripts")
+
+MiscTab:CreateButton({ Name="DESTROY ALL SCRIPTS", Callback=function()
+    task.spawn(function()
+        -- 1. Stop nos propres loops
+        scanning  = false
+        farming   = false
+        ascending = false
+
+        -- 2. Set global kill flag (arrête les scripts qui le vérifient)
+        pcall(function() getgenv()._KILL_ALL = true end)
+
+        -- 3. Destroy tous les ScreenGuis injectés dans CoreGui
+        pcall(function()
+            for _, v in pairs(game:GetService("CoreGui"):GetChildren()) do
+                pcall(function()
+                    if v:IsA("ScreenGui") or v:IsA("Frame") or v:IsA("Folder") then
+                        v:Destroy()
+                    end
+                end)
+            end
+        end)
+
+        -- 4. Destroy tous les ScreenGuis injectés dans PlayerGui
+        pcall(function()
+            for _, v in pairs(player.PlayerGui:GetChildren()) do
+                pcall(function()
+                    -- Les GUIs du jeu ont ResetOnSpawn=true, les injectés souvent false
+                    if v:IsA("ScreenGui") and v.ResetOnSpawn == false then
+                        v:Destroy()
+                    end
+                end)
+            end
+        end)
+
+        -- 5. Désactive tous les LocalScripts injectés dans PlayerScripts / Character
+        pcall(function()
+            for _, v in pairs(player.PlayerScripts:GetDescendants()) do
+                if v:IsA("LocalScript") then
+                    pcall(function() v.Disabled = true end)
+                end
+            end
+        end)
+        pcall(function()
+            if player.Character then
+                for _, v in pairs(player.Character:GetDescendants()) do
+                    if v:IsA("LocalScript") then
+                        pcall(function() v.Disabled = true end)
+                    end
+                end
+            end
+        end)
+
+        -- 6. Reload character = nuclear option (reset tout)
+        pcall(function() player:LoadCharacter() end)
+
+        print("[KILL] All scripts destroyed.")
+    end)
+end })
+
 MiscTab:CreateSection("Player")
 
 local speedEnabled = false
