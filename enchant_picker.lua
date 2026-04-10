@@ -1295,37 +1295,7 @@ UpgTab:CreateButton({ Name="Stop Auto-Upgrade", Callback=function()
     autoUpgrading=false Rayfield:Notify({Title="Upgrade", Content="Stopped.", Duration=2})
 end })
 
-UpgTab:CreateSection("Exploits")
-
-UpgTab:CreateButton({ Name="Bypass AutoSpawn Cap (x20)", Callback=function()
-    task.spawn(function()
-        for i = 1, 20 do
-            pcall(function() remoteFunc:InvokeServer("Upgrade AutoSpawn") end)
-            task.wait(0.3)
-        end
-        Rayfield:Notify({Title="AutoSpawn", Content="20 upgrades envoyés!", Duration=3})
-    end)
-end })
-
-UpgTab:CreateButton({ Name="Bulk Buy All Machines (x50)", Callback=function()
-    task.spawn(function()
-        for _, m in ipairs({"Conveyor","Appraiser","Polisher","Upgrader","Molder","Classifier","Enchanter","Ascender"}) do
-            pcall(function() remoteFunc:InvokeServer("Purchase All Upgrade", m, 50) end)
-            task.wait(0.5)
-        end
-        Rayfield:Notify({Title="Upgrade", Content="Bulk buy envoyé!", Duration=3})
-    end)
-end })
-
-UpgTab:CreateButton({ Name="Spawn Sword (spam x10)", Callback=function()
-    task.spawn(function()
-        for i = 1, 10 do
-            pcall(function() remoteFunc:InvokeServer("Spawn Sword") end)
-            task.wait(0.4)
-        end
-        Rayfield:Notify({Title="Spawn", Content="10 spawn envoyés!", Duration=3})
-    end)
-end })
+UpgTab:CreateSection("Actions")
 
 -- Bank TOUS les swords de la factory d'un coup (sans flyPickup)
 UpgTab:CreateButton({ Name="Bank All Factory Swords", Callback=function()
@@ -1364,91 +1334,13 @@ UpgTab:CreateButton({ Name="Sell All Factory Swords", Callback=function()
     end)
 end })
 
--- Max SellSpeed setting (0.05 = vitesse max, défaut = 1)
-UpgTab:CreateButton({ Name="Max Sell Speed", Callback=function()
-    pcall(function() remote:FireServer("Change Setting", "SellSpeedSetting", 0.05) end)
-    Rayfield:Notify({Title="Exploit", Content="SellSpeed → 0.05", Duration=3})
-end })
-
--- Upgrade Sell Station + Bank Station spam
-UpgTab:CreateButton({ Name="Upgrade Sell+Bank Stations", Callback=function()
+UpgTab:CreateButton({ Name="Spawn Sword (spam x10)", Callback=function()
     task.spawn(function()
-        for i = 1, 30 do
-            pcall(function() remoteFunc:InvokeServer("Upgrade Sell") end)
-            pcall(function() remoteFunc:InvokeServer("Upgrade Bank") end)
-            task.wait(0.3)
+        for i = 1, 10 do
+            pcall(function() remoteFunc:InvokeServer("Spawn Sword") end)
+            task.wait(0.4)
         end
-        Rayfield:Notify({Title="Upgrade", Content="Sell+Bank x30!", Duration=3})
-    end)
-end })
-
--- ===================== TESTS FAILLES =====================
-UpgTab:CreateSection("Tests Failles")
-
--- TEST 1: Teleport Area vers zone locked (slider + bouton)
-local testAreaId = 1
-UpgTab:CreateSlider({ Name="Area ID à tester", Range={1,20}, Increment=1, CurrentValue=1, Flag="TestAreaId",
-    Callback=function(v) testAreaId = v end
-})
-UpgTab:CreateButton({ Name="[TEST] Teleport Area (→ zone locked)", Callback=function()
-    task.spawn(function()
-        local ok, res = pcall(function() return remoteFunc:InvokeServer("Teleport Area", testAreaId) end)
-        local msg = ok and tostring(res) or "ERREUR"
-        Rayfield:Notify({Title="Teleport Area "..testAreaId, Content="Résultat: "..msg, Duration=5})
-        print("[TEST] Teleport Area", testAreaId, "→", ok, res)
-    end)
-end })
-
-UpgTab:CreateButton({ Name="[TEST] Teleport Area toutes zones (1→15)", Callback=function()
-    task.spawn(function()
-        for id = 1, 15 do
-            local ok, res = pcall(function() return remoteFunc:InvokeServer("Teleport Area", id) end)
-            print("[TEST] Teleport Area", id, "→", ok, res)
-            task.wait(0.5)
-        end
-        Rayfield:Notify({Title="Teleport Test", Content="Scan 1→15 terminé (voir console)", Duration=4})
-    end)
-end })
-
--- TEST 2: Ascender spam → dupe potentiel
-UpgTab:CreateButton({ Name="[TEST] Ascender Spam x20 (dupe?)", Callback=function()
-    task.spawn(function()
-        local results = {}
-        for i = 1, 20 do
-            local ok, res = pcall(function() return remoteFunc:InvokeServer("Pickup Ascender") end)
-            table.insert(results, tostring(res))
-            print("[TEST] Ascender spam", i, "→", ok, res)
-            task.wait(0.05)
-        end
-        local unique = {}
-        for _, r in ipairs(results) do unique[r] = (unique[r] or 0) + 1 end
-        local summary = ""
-        for r, n in pairs(unique) do summary = summary..r.."×"..n.." " end
-        Rayfield:Notify({Title="Ascender Spam", Content=summary, Duration=6})
-    end)
-end })
-
--- TEST 3: Sword attribute inflation + Sell All
-UpgTab:CreateButton({ Name="[TEST] Sword Value=999M → Sell All", Callback=function()
-    task.spawn(function()
-        local swords = workspace:FindFirstChild("Swords")
-        if not swords then
-            Rayfield:Notify({Title="Test", Content="workspace.Swords introuvable", Duration=3})
-            return
-        end
-        local count = 0
-        for _, s in pairs(swords:GetChildren()) do
-            pcall(function()
-                local origVal = s:GetAttribute("Value")
-                s:SetAttribute("Value", 999999999)
-                print("[TEST] Sword", s.Name, "Value:", origVal, "→ 999999999")
-                count = count + 1
-            end)
-        end
-        task.wait(0.2)
-        local ok, res = pcall(function() return remoteFunc:InvokeServer("Sell All") end)
-        print("[TEST] Sell All →", ok, res)
-        Rayfield:Notify({Title="Sword Value Test", Content=count.." swords modifiés, Sell: "..tostring(res), Duration=6})
+        Rayfield:Notify({Title="Spawn", Content="10 spawn envoyés!", Duration=3})
     end)
 end })
 
