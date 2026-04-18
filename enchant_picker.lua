@@ -575,39 +575,75 @@ local function qualityRank(text)
     return 0
 end
 
+-- Emoji selon la tier de rareté
+local function rarityEmoji(rarity)
+    if not rarity then return "⚔️" end
+    local tiers = {
+        {k="Infinity", e="🌌"}, {k="Galactic", e="🌠"}, {k="Stellar", e="💫"},
+        {k="Heavenly", e="👼"}, {k="Cosmic",   e="🪐"}, {k="Eternal", e="♾️"},
+        {k="Celestial",e="✨"}, {k="Supreme",  e="👑"}, {k="Exotic",  e="🔮"},
+        {k="Unique",   e="💎"}, {k="Godly",    e="🌟"}, {k="Hyper",   e="⚡"},
+        {k="Insane",   e="🔥"}, {k="Ultimate", e="🏆"}, {k="Extreme", e="💥"},
+        {k="Omega",    e="🟣"}, {k="Ultra",    e="🔵"}, {k="Mega",    e="🟢"},
+        {k="Super",    e="🟡"}, {k="Divine",   e="🌈"}, {k="Mythical",e="🟠"},
+        {k="Legendary",e="🟡"}, {k="Epic",     e="🟣"}, {k="Rare",    e="🔵"},
+        {k="Uncommon", e="🟢"}, {k="Common",   e="⚪"}, {k="Basic",   e="⚫"},
+    }
+    for _, t in ipairs(tiers) do
+        if rarity:find(t.k) then return t.e end
+    end
+    return "⚔️"
+end
+
 local function sendWebhook(sword, enchants, info)
     if WEBHOOK_URL == "" then return end
     info = info or getSwordInfo(sword)
     pcall(function()
+        -- Couleur selon rareté (ordre précis du plus rare au moins rare)
         local color = 6559471
-        for rarity, col in pairs(rarityColors) do
-            if info.rarity and info.rarity:find(rarity) then color = col break end
+        local rarityPriority = {
+            "Infinity","Galactic","Stellar","Heavenly","Cosmic","Eternal",
+            "Celestial","Supreme","Exotic","Unique","Godly","Hyper","Insane",
+            "Ultimate","Extreme","Omega","Ultra","Mega","Super","Divine",
+            "Mythical","Legendary","Epic","Rare","Uncommon","Common","Basic",
+        }
+        for _, rarity in ipairs(rarityPriority) do
+            if info.rarity and info.rarity:find(rarity) and rarityColors[rarity] then
+                color = rarityColors[rarity]
+                break
+            end
         end
 
-        local fields = {}
-        for idx, e in ipairs(enchants) do
-            table.insert(fields, { name = "Enchant "..idx, value = e, inline = true })
-        end
-        table.insert(fields, { name = "Level",   value = info.level   or "?", inline = true })
-        table.insert(fields, { name = "Rarity",  value = info.rarity  or "?", inline = true })
-        table.insert(fields, { name = "Worth",   value = info.worth   or "?", inline = true })
-        table.insert(fields, { name = "Price",   value = info.selling or "?", inline = true })
-        table.insert(fields, { name = "Server",  value = tostring(#game:GetService("Players"):GetPlayers()).." players", inline = true })
+        local emoji = rarityEmoji(info.rarity)
+
+        -- Enchants sur une seule ligne
+        local enchantStr = #enchants > 0 and table.concat(enchants, " · ") or "Aucun"
+
+        -- Avatar du joueur via thumbnail API Roblox
+        local avatarUrl = "https://www.roblox.com/headshot-thumbnail/image?userId="..player.UserId.."&width=150&height=150&format=png"
 
         request({
             Url    = WEBHOOK_URL,
             Method = "POST",
             Headers = { ["Content-Type"] = "application/json" },
-            Body = game:GetService("HttpService"):JSONEncode({
+            Body = HS:JSONEncode({
                 username   = "TinouHUB",
-                avatar_url = "https://tr.rbxcdn.com/180DAY-placeholder/150/150/AvatarHeadshot/Webp/noFilter",
+                avatar_url = avatarUrl,
                 embeds = {{
-                    title       = "Sword Sniped — "..(info.name or "Unknown"),
-                    description = "**"..player.Name.."** picked up a matching sword!",
+                    title       = emoji.." "..(info.name or "Unknown Sword"),
+                    description = "**"..player.Name.."** a snipé une épée !",
                     color       = color,
-                    fields      = fields,
-                    footer      = { text = "TinouHub v"..VERSION.." | Sword Factory X" },
-                    timestamp   = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+                    thumbnail   = { url = avatarUrl },
+                    fields = {
+                        { name = "✨ Enchants", value = enchantStr,          inline = false },
+                        { name = "⭐ Rareté",   value = info.rarity  or "?", inline = true  },
+                        { name = "📊 Level",    value = info.level   or "?", inline = true  },
+                        { name = "💰 Valeur",   value = info.worth   or "?", inline = true  },
+                        { name = "🏷️ Prix",    value = info.selling or "?", inline = true  },
+                        { name = "👥 Serveur",  value = tostring(#game:GetService("Players"):GetPlayers()).." joueurs", inline = true },
+                    },
+                    footer    = { text = "TinouHub v"..VERSION.." · Sword Factory X" },
+                    timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
                 }}
             })
         })
@@ -631,35 +667,45 @@ end
 
 local function sendAscenderWebhook(sword, quality, attempts)
     if WEBHOOK_URL == "" then return end
-    local info    = getSwordInfo(sword)
+    local info     = getSwordInfo(sword)
     local enchants = getSwordEnchants(sword)
     pcall(function()
         local color = 16766720
-        for rarity, col in pairs(rarityColors) do
-            if quality and quality:find(rarity) then color = col break end
+        local rarityPriority = {
+            "Infinity","Galactic","Stellar","Heavenly","Cosmic","Eternal",
+            "Celestial","Supreme","Exotic","Unique","Godly","Hyper","Insane",
+            "Ultimate","Extreme","Omega","Ultra","Mega","Super","Divine",
+            "Mythical","Legendary","Epic","Rare","Uncommon","Common","Basic",
+        }
+        for _, rarity in ipairs(rarityPriority) do
+            if quality and quality:find(rarity) and rarityColors[rarity] then
+                color = rarityColors[rarity] break
+            end
         end
-        local fields = {}
-        for idx, e in ipairs(enchants) do
-            table.insert(fields, { name = "Enchant "..idx, value = e, inline = true })
-        end
-        table.insert(fields, { name = "Quality",  value = quality or "?",     inline = true })
-        table.insert(fields, { name = "Attempts", value = tostring(attempts), inline = true })
-        table.insert(fields, { name = "Level",    value = info.level or "?",  inline = true })
-        table.insert(fields, { name = "Worth",    value = info.worth or "?",  inline = true })
+        local avatarUrl  = "https://www.roblox.com/headshot-thumbnail/image?userId="..player.UserId.."&width=150&height=150&format=png"
+        local emoji      = rarityEmoji(quality)
+        local enchantStr = #enchants > 0 and table.concat(enchants, " · ") or "Aucun"
         request({
             Url    = WEBHOOK_URL,
             Method = "POST",
             Headers = { ["Content-Type"] = "application/json" },
             Body = HS:JSONEncode({
                 username   = "TinouHUB",
-                avatar_url = "https://tr.rbxcdn.com/180DAY-placeholder/150/150/AvatarHeadshot/Webp/noFilter",
+                avatar_url = avatarUrl,
                 embeds = {{
-                    title       = "Ascender — Target Reached!",
-                    description = "**"..player.Name.."** reached **"..quality.."** in "..attempts.." tries!",
+                    title       = "🏆 Ascender — Objectif atteint !",
+                    description = "**"..player.Name.."** a atteint **"..emoji.." "..(quality or "?").."** en "..attempts.." essais !",
                     color       = color,
-                    fields      = fields,
-                    footer      = { text = "TinouHub v"..VERSION.." | Sword Factory X" },
-                    timestamp   = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+                    thumbnail   = { url = avatarUrl },
+                    fields = {
+                        { name = "✨ Enchants", value = enchantStr,          inline = false },
+                        { name = "⭐ Rareté",   value = quality  or "?",     inline = true  },
+                        { name = "📊 Level",    value = info.level or "?",   inline = true  },
+                        { name = "💰 Valeur",   value = info.worth or "?",   inline = true  },
+                        { name = "🔄 Essais",   value = tostring(attempts),  inline = true  },
+                    },
+                    footer    = { text = "TinouHub v"..VERSION.." · Sword Factory X" },
+                    timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
                 }}
             })
         })
@@ -754,26 +800,16 @@ local function handleSword(sword, lbl)
     local enchants = getSwordEnchants(sword)
     local info     = getSwordInfo(sword)
 
-    if zone == "selling" then
-        -- Zone selling : flyPickup fonctionne
-        flyPickup(sword)
-        if AUTO_BANK then
-            task.wait(0.3)
-            pcall(function() remote:FireServer("Set Hotbar", sword.Name, "Inventory") end)
-            if AUTO_SELL then
-                task.wait(0.5)
-                pcall(function() remoteFunc:InvokeServer("Sell All") end)
-            end
-        end
-    elseif zone == "factory" then
-        -- Zone factory : Set Hotbar direct vers Inventory (pas de flyPickup)
+    if zone ~= "selling" then return end  -- pickup uniquement depuis selling zone
+
+    flyPickup(sword)
+    if AUTO_BANK then
+        task.wait(0.3)
         pcall(function() remote:FireServer("Set Hotbar", sword.Name, "Inventory") end)
         if AUTO_SELL then
-            task.wait(0.3)
+            task.wait(0.5)
             pcall(function() remoteFunc:InvokeServer("Sell All") end)
         end
-    else
-        return  -- zone inconnue, skip
     end
 
     totalPicked = totalPicked + 1
@@ -798,26 +834,19 @@ local function startFactoryCollect(lbl)
         task.wait(0.5) -- attend que les enchants soient chargés
         local matched, enchants = statsUuidMatches(uuid)
         if matched then
+            -- Pickup impossible depuis factory, juste notif/webhook pour signaler
             totalPicked = totalPicked + 1
-            pcall(function() lbl:Set("Factory snipe! Total: "..totalPicked) end)
-            Rayfield:Notify({Title="Factory Snipe!", Content=table.concat(enchants,", "), Duration=3})
-            if AUTO_BANK then
-                pcall(function() remote:FireServer("Set Hotbar", uuid, "Inventory") end)
-                task.wait(0.3)
-                if AUTO_SELL then
-                    pcall(function() remoteFunc:InvokeServer("Sell All") end)
-                end
-            end
-            -- Webhook
+            pcall(function() lbl:Set("Factory match! Total: "..totalPicked) end)
+            Rayfield:Notify({Title="Factory Match!", Content=table.concat(enchants,", ").."\n(passe en sell zone pour pick)", Duration=6})
             if WEBHOOK_URL ~= "" then
                 pcall(function()
                     request({
                         Url = WEBHOOK_URL, Method = "POST",
                         Headers = {["Content-Type"]="application/json"},
                         Body = HS:JSONEncode({ username="TinouHUB", embeds={{
-                            title = "Factory Snipe — "..uuid:sub(1,8),
-                            description = "**"..player.Name.."** banked a factory sword!",
-                            color = 3066993,
+                            title = "Factory Match — "..uuid:sub(1,8),
+                            description = "**"..player.Name.."** — sword en factory, attendre sell zone",
+                            color = 16776960,
                             fields = {{ name="Enchants", value=table.concat(enchants,", "), inline=true }},
                             footer = { text="TinouHub v"..VERSION },
                             timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
