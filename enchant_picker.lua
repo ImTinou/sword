@@ -432,6 +432,20 @@ local function isProtected(sword)
     return false
 end
 
+-- Vérifie que l'épée appartient bien au joueur (dans sa zone)
+-- Le serveur rejette Set Hotbar pour les épées hors de la zone du joueur
+local function isOwnSword(sword)
+    local stats = game:GetService("ReplicatedStorage"):FindFirstChild("Stats")
+    if not stats then return false end
+    local pStats = stats:FindFirstChild(player.Name)
+    if not pStats then return false end
+    for _, folder in pairs({"Factory", "Selling", "Swords", "Bank", "Ascender"}) do
+        local f = pStats:FindFirstChild(folder)
+        if f and f:FindFirstChild(sword.Name) then return true end
+    end
+    return false
+end
+
 
 local function getSwordEnchants(sword)
     local ok, children = pcall(function()
@@ -717,6 +731,7 @@ end
 
 local function handleSword(sword, lbl)
     if not scanning then return end
+    if not isOwnSword(sword) then return end  -- skip les épées hors de notre zone
     if not isProtected(sword) and swordMatches(sword) then
         local enchants = getSwordEnchants(sword)
         local info     = getSwordInfo(sword)
