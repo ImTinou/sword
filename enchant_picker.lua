@@ -1028,11 +1028,15 @@ local zoneIds = {
 
 local selectedZone    = "Beginner's Trials"
 local MIN_HP_PCT      = 0.35
-local FARM_POS_MODE   = "Below"
+local FARM_POS_MODE   = "Above"
 local FARM_Y_OFFSET   = 5
 local farmSafePos     = nil
 local FARM_REACH      = 10
+local FARM_NOCLIP     = true
+local FARM_AUTO_PULL  = false
 local VU              = game:GetService("VirtualUser")
+local RunService      = game:GetService("RunService")
+local farmHpConn      = nil
 
 local expandedNpcs = {}
 local function expandHitbox(npc)
@@ -1099,6 +1103,37 @@ local function getNpcsInZone()
     return npcs
 end
 
+-- Teleporte tous les mobs sur le joueur ET disable leur CanCollide (coupe leurs hitboxes d'attaque)
+local function pullMobsToPlayer()
+    local char = player.Character
+    if not char then return 0 end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return 0 end
+    local npcs = getNpcsInZone()
+    local count = 0
+    for _, npc in ipairs(npcs) do
+        pcall(function()
+            local npcRoot = npc:FindFirstChild("HumanoidRootPart")
+            if not npcRoot then return end
+            -- Disable CanCollide sur TOUTES les parts du mob → coupe leurs hitboxes d'attaque
+            -- (les Touched events server-side ne fire pas si CanCollide=false des deux côtés)
+            for _, part in pairs(npc:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
+                end
+            end
+            -- Expand hitbox pour que le joueur les hit tous en un swing
+            expandHitbox(npc)
+            -- Teleport groupé autour du joueur (offset aléatoire pour pas superposer)
+            local ox = math.random(-3, 3)
+            local oz = math.random(-3, 3)
+            npcRoot.CFrame = hrp.CFrame + Vector3.new(ox, 0, oz)
+            count = count + 1
+        end)
+    end
+    return count
+end
+
 local function goUnderNpc(npc)
     local char = player.Character
     if not char then return end
@@ -1132,13 +1167,20 @@ FarmTab:CreateSection("Options")
 
 FarmTab:CreateDropdown({
     Name            = "Position",
-    Options         = {"Below","Above","Behind"},
-    CurrentOption   = "Below",
+    Options         = {"Above","Below","Behind"},
+    CurrentOption   = "Above",
     MultipleOptions = false,
     Flag            = "FarmPosMode",
     Callback        = function(opt)
         FARM_POS_MODE = type(opt) == "table" and opt[1] or opt
     end,
+})
+
+FarmTab:CreateToggle({
+    Name         = "Noclip (mobs peuvent pas te toucher)",
+    CurrentValue = true,
+    Flag         = "FarmNoclip",
+    Callback     = function(v) FARM_NOCLIP = v end,
 })
 
 FarmTab:CreateSlider({
@@ -1168,10 +1210,25 @@ FarmTab:CreateSlider({
     Callback     = function(val) MIN_HP_PCT = val / 100 end,
 })
 
+FarmTab:CreateToggle({
+    Name         = "Auto-Pull Mobs (ramène tous les mobs sur toi)",
+    CurrentValue = false,
+    Flag         = "FarmAutoPull",
+    Callback     = function(v) FARM_AUTO_PULL = v end,
+})
+
 
 FarmTab:CreateSection("Control")
 
 local farmStatusLbl = FarmTab:CreateLabel("Farm: Idle")
+
+FarmTab:CreateButton({
+    Name     = "Pull All Mobs Now",
+    Callback = function()
+        local n = pullMobsToPlayer()
+        Rayfield:Notify({Title="Pull Mobs", Content=n.." mobs téléportés sur toi!", Duration=3})
+    end,
+})
 
 FarmTab:CreateButton({
     Name     = "Teleport to Zone",
@@ -1215,6 +1272,54 @@ FarmTab:CreateButton({
                 end)
             end
         end
+        -- HP monitor séparé: noclip + fuite instantanée sur Heartbeat
+        if farmHpConn then farmHpConn:Disconnect() end
+        farmHpConn = RunService.Heartbeat:Connect(function()
+            if not farming then farmHpConn:Disconnect() farmHpConn = nil return end
+            local char = player.Character
+            if not char then return end
+            -- Noclip auto
+            if FARM_NOCLIP then
+                for _, p in pairs(char:GetDescendants()) do
+                    if p:IsA("BasePart") then p.CanCollide = false end
+                end
+            end
+            -- Fuite instantanée si HP trop bas
+            if getHpPct() < MIN_HP_PCT and farmSafePos then
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if hrp then hrp.CFrame = farmSafePos end
+            end
+        end)
+
+        -- Boucle auto-pull: ramène tous les mobs sur le joueur toutes les 1s
+        -- + re-disable leur CanCollide en continu (le serveur peut le reset)
+        task.spawn(function()
+            while farming do
+                task.wait(1)
+                if not FARM_AUTO_PULL or not farming then continue end
+                pcall(function()
+                    local char2 = player.Character
+                    local hrp2 = char2 and char2:FindFirstChild("HumanoidRootPart")
+                    if not hrp2 then return end
+                    local npcs = getNpcsInZone()
+                    for _, npc in ipairs(npcs) do
+                        pcall(function()
+                            -- Maintien CanCollide=false sur toutes les parts mob
+                            for _, part in pairs(npc:GetDescendants()) do
+                                if part:IsA("BasePart") then part.CanCollide = false end
+                            end
+                            local npcRoot = npc:FindFirstChild("HumanoidRootPart")
+                            if npcRoot then
+                                local ox = math.random(-3, 3)
+                                local oz = math.random(-3, 3)
+                                npcRoot.CFrame = hrp2.CFrame + Vector3.new(ox, 0, oz)
+                            end
+                        end)
+                    end
+                end)
+            end
+        end)
+
         task.spawn(function()
             local killed = 0
             while farming do
