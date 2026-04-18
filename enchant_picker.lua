@@ -1103,7 +1103,10 @@ local function getNpcsInZone()
     return npcs
 end
 
--- Teleporte tous les mobs sur le joueur ET disable leur CanCollide (coupe leurs hitboxes d'attaque)
+-- Teleporte tous les mobs sur le joueur + expand leurs hitboxes
+-- NB: on ne touche PAS leur CanCollide, sinon le sword du joueur ne peut plus les hit
+-- (Touched ne fire pas si la target a CanCollide=false)
+-- Le noclip du joueur (FARM_NOCLIP sur Heartbeat) gère le fait de pas prendre de dégâts
 local function pullMobsToPlayer()
     local char = player.Character
     if not char then return 0 end
@@ -1115,14 +1118,7 @@ local function pullMobsToPlayer()
         pcall(function()
             local npcRoot = npc:FindFirstChild("HumanoidRootPart")
             if not npcRoot then return end
-            -- Disable CanCollide sur TOUTES les parts du mob → coupe leurs hitboxes d'attaque
-            -- (les Touched events server-side ne fire pas si CanCollide=false des deux côtés)
-            for _, part in pairs(npc:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = false
-                end
-            end
-            -- Expand hitbox pour que le joueur les hit tous en un swing
+            -- Expand hitbox → le joueur les hit tous en un swing
             expandHitbox(npc)
             -- Teleport groupé autour du joueur (offset aléatoire pour pas superposer)
             local ox = math.random(-3, 3)
@@ -1297,26 +1293,7 @@ FarmTab:CreateButton({
             while farming do
                 task.wait(1)
                 if not FARM_AUTO_PULL or not farming then continue end
-                pcall(function()
-                    local char2 = player.Character
-                    local hrp2 = char2 and char2:FindFirstChild("HumanoidRootPart")
-                    if not hrp2 then return end
-                    local npcs = getNpcsInZone()
-                    for _, npc in ipairs(npcs) do
-                        pcall(function()
-                            -- Maintien CanCollide=false sur toutes les parts mob
-                            for _, part in pairs(npc:GetDescendants()) do
-                                if part:IsA("BasePart") then part.CanCollide = false end
-                            end
-                            local npcRoot = npc:FindFirstChild("HumanoidRootPart")
-                            if npcRoot then
-                                local ox = math.random(-3, 3)
-                                local oz = math.random(-3, 3)
-                                npcRoot.CFrame = hrp2.CFrame + Vector3.new(ox, 0, oz)
-                            end
-                        end)
-                    end
-                end)
+                pcall(pullMobsToPlayer)
             end
         end)
 
