@@ -516,7 +516,7 @@ local function flyPickup(sword)
 end
 
 local ascAttempts   = 0
-local targetQuality = "Miraculous"
+local targetQuality = "Godly"
 local ascMode       = "Rarity"
 
 local function getSwordInfo(sword)
@@ -740,8 +740,12 @@ end
 -- et les bank/sell directement sans flyPickup
 local function startFactoryCollect(lbl)
     local RS = game:GetService("ReplicatedStorage")
-    local pStats = RS:WaitForChild("Stats"):WaitForChild(player.Name)
-    local factoryFolder = pStats:WaitForChild("Factory")
+    local statsRoot = RS:FindFirstChild("Stats")
+    if not statsRoot then return end
+    local pStats = statsRoot:FindFirstChild(player.Name)
+    if not pStats then return end
+    local factoryFolder = pStats:FindFirstChild("Factory")
+    if not factoryFolder then return end  -- pas encore unlockée
 
     local function checkFactoryUUID(uuid)
         if not scanning then return end
@@ -921,10 +925,17 @@ SettingsTab:CreateLabel("github.com/ImTinou/sword")
 -- Tab Farm
 local FarmTab = Window:CreateTab("Farm", "zap")
 
+-- Zones dans l'ordre de level requirement (IDs 1→9)
 local zoneList = {
-    "Beginner's Trials","Crystal Caverns","Snowy Fields",
-    "Mystical Forest","Stranded Island","Heavenly Gates",
-    "Intraplanetarium","Volcanic Isles","Ancient Mineshaft"
+    "Beginner's Trials",   -- lvl 0   ID 1
+    "Mystical Forest",     -- lvl 20  ID 2
+    "Stranded Island",     -- lvl 75  ID 3
+    "Snowy Fields",        -- lvl 120 ID 4
+    "Crystal Caverns",     -- lvl 200 ID 5
+    "Volcanic Isles",      -- lvl 300 ID 6
+    "Intraplanetarium",    -- lvl 420 ID 7
+    "Ancient Mineshaft",   -- lvl 510 ID 8
+    "Heavenly Gates",      -- lvl 600 ID 9
 }
 
 -- Mapping zone name -> area ID (remote arg "Teleport Area", [id])
@@ -999,7 +1010,9 @@ local function getNpcsInZone()
     local npcs = {}
     local char = player.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    for _, npc in pairs(workspace.NPCs:GetChildren()) do
+    local npcFolder = workspace:FindFirstChild("NPCs") or workspace:FindFirstChild("Mobs") or workspace:FindFirstChild("Enemies")
+    if not npcFolder then return npcs end
+    for _, npc in pairs(npcFolder:GetChildren()) do
         local hum = npc:FindFirstChildOfClass("Humanoid")
         local npcRoot = npc:FindFirstChild("HumanoidRootPart")
         if hum and hum.Health > 0 and npcRoot then
@@ -1204,7 +1217,7 @@ AscTab:CreateSection("Config")
 local ascStatusLbl = AscTab:CreateLabel("Ascender: Idle")
 AscTab:CreateDropdown({ Name="Mode", Options={"Rarity","Quality","Level","Mold","Class","Enchant"}, CurrentOption="Rarity", MultipleOptions=false, Flag="AscMode",
     Callback=function(o) ascMode=type(o)=="table" and o[1] or o end })
-AscTab:CreateDropdown({ Name="Stop at", Options=qualityOrder, CurrentOption="Miraculous", MultipleOptions=false, Flag="AscTarget",
+AscTab:CreateDropdown({ Name="Stop at", Options=qualityOrder, CurrentOption="Godly", MultipleOptions=false, Flag="AscTarget",
     Callback=function(o) targetQuality=type(o)=="table" and o[1] or o end })
 
 AscTab:CreateSection("Control")
