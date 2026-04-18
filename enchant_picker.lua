@@ -729,12 +729,33 @@ local function statsUuidMatches(uuid)
     return false, fakeEnchants
 end
 
+-- Retourne "selling", "factory" ou nil selon où est l'épée dans les stats du joueur
+local function getSwordZone(sword)
+    local stats = game:GetService("ReplicatedStorage"):FindFirstChild("Stats")
+    if not stats then return nil end
+    local pStats = stats:FindFirstChild(player.Name)
+    if not pStats then return nil end
+    if pStats:FindFirstChild("Selling") and pStats.Selling:FindFirstChild(sword.Name) then
+        return "selling"
+    end
+    if pStats:FindFirstChild("Factory") and pStats.Factory:FindFirstChild(sword.Name) then
+        return "factory"
+    end
+    return nil
+end
+
 local function handleSword(sword, lbl)
     if not scanning then return end
-    if not isOwnSword(sword) then return end  -- skip les épées hors de notre zone
-    if not isProtected(sword) and swordMatches(sword) then
-        local enchants = getSwordEnchants(sword)
-        local info     = getSwordInfo(sword)
+    if not isOwnSword(sword) then return end
+    if isProtected(sword) then return end
+    if not swordMatches(sword) then return end
+
+    local zone    = getSwordZone(sword)
+    local enchants = getSwordEnchants(sword)
+    local info     = getSwordInfo(sword)
+
+    if zone == "selling" then
+        -- Zone selling : flyPickup fonctionne
         flyPickup(sword)
         if AUTO_BANK then
             task.wait(0.3)
@@ -744,11 +765,21 @@ local function handleSword(sword, lbl)
                 pcall(function() remoteFunc:InvokeServer("Sell All") end)
             end
         end
-        totalPicked = totalPicked + 1
-        pcall(function() lbl:Set("Sniped! Total: "..totalPicked) end)
-        Rayfield:Notify({Title="Sword Found!", Content=table.concat(enchants,", "), Duration=3})
-        sendWebhook(sword, enchants, info)
+    elseif zone == "factory" then
+        -- Zone factory : Set Hotbar direct vers Inventory (pas de flyPickup)
+        pcall(function() remote:FireServer("Set Hotbar", sword.Name, "Inventory") end)
+        if AUTO_SELL then
+            task.wait(0.3)
+            pcall(function() remoteFunc:InvokeServer("Sell All") end)
+        end
+    else
+        return  -- zone inconnue, skip
     end
+
+    totalPicked = totalPicked + 1
+    pcall(function() lbl:Set("Sniped! ["..( zone or "?").."] Total: "..totalPicked) end)
+    Rayfield:Notify({Title="Sword Found! ["..( zone or "?").."]", Content=table.concat(enchants,", "), Duration=3})
+    sendWebhook(sword, enchants, info)
 end
 
 -- Auto-collect factory: surveille RS.Stats.Factory pour les swords qui matchent
