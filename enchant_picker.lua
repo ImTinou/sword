@@ -1103,31 +1103,45 @@ local function getNpcsInZone()
     return npcs
 end
 
--- Teleporte tous les mobs sur le joueur + expand leurs hitboxes
--- NB: on ne touche PAS leur CanCollide, sinon le sword du joueur ne peut plus les hit
--- (Touched ne fire pas si la target a CanCollide=false)
--- Le noclip du joueur (FARM_NOCLIP sur Heartbeat) gère le fait de pas prendre de dégâts
-local function pullMobsToPlayer()
+-- Rapid kill sweep: téléporte le JOUEUR sur chaque mob et spam-attaque
+-- La position du joueur réplique au serveur → les hits connectent vraiment
+-- (déplacer les mobs client-side ne réplique pas → 0 dégât, c'est pour ça que c'est inversé)
+local function rapidKillSweep()
     local char = player.Character
     if not char then return 0 end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return 0 end
+
     local npcs = getNpcsInZone()
-    local count = 0
+    -- Expand hitbox sur tous les mobs d'abord
     for _, npc in ipairs(npcs) do
-        pcall(function()
-            local npcRoot = npc:FindFirstChild("HumanoidRootPart")
-            if not npcRoot then return end
-            -- Expand hitbox → le joueur les hit tous en un swing
-            expandHitbox(npc)
-            -- Teleport groupé autour du joueur (offset aléatoire pour pas superposer)
-            local ox = math.random(-3, 3)
-            local oz = math.random(-3, 3)
-            npcRoot.CFrame = hrp.CFrame + Vector3.new(ox, 0, oz)
-            count = count + 1
-        end)
+        pcall(function() expandHitbox(npc) end)
     end
-    return count
+
+    local killed = 0
+    for _, npc in ipairs(npcs) do
+        if not npc.Parent then continue end
+        local hum     = npc:FindFirstChildOfClass("Humanoid")
+        local npcRoot = npc:FindFirstChild("HumanoidRootPart")
+        if not hum or not npcRoot or hum.Health <= 0 then continue end
+
+        -- TP joueur sur le mob (réplique serveur)
+        hrp.CFrame = npcRoot.CFrame + Vector3.new(0, 3, 0)
+
+        -- Spam attack jusqu'à mort du mob (max 3s)
+        local t = 0
+        while hum.Health > 0 and t < 3 do
+            activateTool()
+            task.wait(0.05)
+            t = t + 0.05
+        end
+
+        if hum.Health <= 0 then
+            killed = killed + 1
+            expandedNpcs[npc] = nil
+        end
+    end
+    return killed
 end
 
 local function goUnderNpc(npc)
@@ -1207,7 +1221,7 @@ FarmTab:CreateSlider({
 })
 
 FarmTab:CreateToggle({
-    Name         = "Auto-Pull Mobs (ramène tous les mobs sur toi)",
+    Name         = "Auto Kill Sweep (sweep tous les mobs rapidement)",
     CurrentValue = false,
     Flag         = "FarmAutoPull",
     Callback     = function(v) FARM_AUTO_PULL = v end,
@@ -1219,10 +1233,12 @@ FarmTab:CreateSection("Control")
 local farmStatusLbl = FarmTab:CreateLabel("Farm: Idle")
 
 FarmTab:CreateButton({
-    Name     = "Pull All Mobs Now",
+    Name     = "Kill All Mobs Now",
     Callback = function()
-        local n = pullMobsToPlayer()
-        Rayfield:Notify({Title="Pull Mobs", Content=n.." mobs téléportés sur toi!", Duration=3})
+        task.spawn(function()
+            local n = rapidKillSweep()
+            Rayfield:Notify({Title="Kill Sweep", Content=n.." mobs tués!", Duration=3})
+        end)
     end,
 })
 
@@ -1293,7 +1309,7 @@ FarmTab:CreateButton({
             while farming do
                 task.wait(1)
                 if not FARM_AUTO_PULL or not farming then continue end
-                pcall(pullMobsToPlayer)
+                pcall(rapidKillSweep)
             end
         end)
 
