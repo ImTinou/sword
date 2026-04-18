@@ -5,7 +5,7 @@ local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remote
 local remoteFunc   = game:GetService("ReplicatedStorage").Paper.Remotes.__remotefunction
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "0.4.1"
+local VERSION     = "0.5.0"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
@@ -404,34 +404,21 @@ pcall(function()
     })
 end)
 
--- Mapping enchant ID -> nom (extrait du jeu via place dump)
+-- Mapping enchant ID -> nom (UPD — extrait du dump)
+-- IDs 0-15 sont les vrais enchants, les anciens IDs 0-49 étaient les CLASS
 local ENCHANT_IDS = {
-    [-1]="Unknown",   [0]="Regular",      [1]="Nice",         [2]="Cool",
-    [3]="Decent",     [4]="Strong",       [5]="Tough",        [6]="Solid",
-    [7]="Powerful",   [8]="Crazy",        [9]="Unstoppable",  [10]="Impossible",
-    [11]="Ethereal",  [12]="Unimaginable",[13]="Outrageous",  [14]="Limitless",
-    [15]="Invincible",[16]="Chaotic",     [17]="Unbeatable",  [18]="Colossal",
-    [19]="Unbreakable",[20]="Indomitable",[21]="Omnipotent",  [22]="Vigorous",
-    [23]="Ruthless",  [24]="Mighty",      [25]="Ferocious",   [26]="Resilient",
-    [27]="Immortal",  [28]="Undying",     [29]="Prime",       [30]="Elite",
-    [31]="Heroic",    [32]="Flawless",    [33]="Remorseless", [34]="Inimitable",
-    [35]="Astronomical",[36]="Astronomical+",[37]="Astronomical++",[38]="Astronomical+3",
-    [39]="Astronomical+4",[40]="Astronomical+5",[41]="Astronomical+6",
-    [42]="Astronomical+7",[43]="Astronomical+8",[44]="Astronomical+9",
-    [45]="Astronomical+10",[46]="Astronomical+11",[47]="Astronomical+12",
-    [48]="Astronomical+13",[49]="Astronomical+14",
+    [-1]="Unknown",
+    [0]="Fortune",      [1]="Sharpness",    [2]="Protection",   [3]="Haste",
+    [4]="Swiftness",    [5]="Critical",     [6]="Resistance",   [7]="Healing",
+    [8]="Looting",      [9]="Attraction",   [10]="Stealth",     [11]="Ancient",
+    [12]="Desperation", [13]="Insight",     [14]="Thorns",      [15]="Knockback",
 }
 
 local enchantList = {
     "Any",
-    "Regular","Nice","Cool","Decent","Strong","Tough","Solid","Powerful",
-    "Crazy","Unstoppable","Impossible","Ethereal","Unimaginable","Outrageous",
-    "Limitless","Invincible","Chaotic","Unbeatable","Colossal","Unbreakable",
-    "Indomitable","Omnipotent","Vigorous","Ruthless","Mighty","Ferocious",
-    "Resilient","Immortal","Undying","Prime","Elite","Heroic","Flawless",
-    "Remorseless","Inimitable","Astronomical","Astronomical+","Astronomical++",
-    "Astronomical+3","Astronomical+4","Astronomical+5","Astronomical+6",
-    "Astronomical+7","Astronomical+8","Astronomical+9","Astronomical+10",
+    "Fortune","Sharpness","Protection","Haste","Swiftness","Critical",
+    "Resistance","Healing","Looting","Attraction","Stealth","Ancient",
+    "Desperation","Insight","Thorns","Knockback",
 }
 
 local function isProtected(sword)
@@ -546,16 +533,25 @@ local function getSwordInfo(sword)
 end
 
 local rarityColors = {
+    Basic=8421504,
     Common=9807270, Uncommon=5763719, Rare=3447003,
     Epic=10181046, Legendary=16766720, Mythical=15158332,
+    Divine=16744448, Super=16711935, Mega=65535,
+    Ultra=16776960, Omega=16711680, Extreme=16744272,
+    Ultimate=10066329, Insane=16711800, Hyper=16744576,
     Unique=1752220, Godly=16711680, Celestial=16777215,
+    Eternal=16744703, Cosmic=11534336, Heavenly=16777180,
+    Stellar=16744447, Galactic=9699328, Infinity=16744319,
 }
 
+-- Raretés dans l'ordre croissant (UPD — IDs 0→125)
 local qualityOrder = {
-    "Common","Uncommon","Rare","Epic","Legendary",
-    "Mythical","Unique","Godly","Celestial",
-    "Astounding","Fabulous","Glorious","Miraculous",
-    "Staggering","Supernatural","Unbeatable",
+    "Basic","Common","Uncommon","Rare","Epic",
+    "Legendary","Mythical","Divine","Super","Mega",
+    "Ultra","Omega","Extreme","Ultimate","Insane",
+    "Hyper","Godly","Unique","Exotic","Supreme",
+    "Celestial","Eternal","Cosmic","Heavenly","Stellar",
+    "Galactic","Infinity",
 }
 local function qualityRank(text)
     if not text then return 0 end
@@ -1296,6 +1292,37 @@ UpgTab:CreateButton({ Name="Stop Auto-Upgrade", Callback=function()
 end })
 
 UpgTab:CreateSection("Actions")
+
+-- Max stats visuel côté client (affichage seulement, pas le serveur)
+UpgTab:CreateButton({ Name="Max Sword Stats (visuel client)", Callback=function()
+    task.spawn(function()
+        local swords = workspace:FindFirstChild("Swords")
+        if not swords then
+            Rayfield:Notify({Title="Client Visual", Content="workspace.Swords introuvable", Duration=3})
+            return
+        end
+        local count = 0
+        for _, s in pairs(swords:GetChildren()) do
+            pcall(function()
+                s:SetAttribute("Rarity",       125)  -- Infinity+20
+                s:SetAttribute("Class",        55)   -- Astronomical+20
+                s:SetAttribute("Quality",      100)
+                s:SetAttribute("Level",        9999)
+                s:SetAttribute("Mold",         41)   -- Iridium+20
+                s:SetAttribute("Enchant1",     15)   -- Knockback (rarest)
+                s:SetAttribute("Enchant2",     15)
+                s:SetAttribute("Enchant3",     15)
+                s:SetAttribute("Enchant4",     15)
+                s:SetAttribute("EnchantLevel1",5000)
+                s:SetAttribute("EnchantLevel2",5000)
+                s:SetAttribute("EnchantLevel3",5000)
+                s:SetAttribute("EnchantLevel4",5000)
+                count = count + 1
+            end)
+        end
+        Rayfield:Notify({Title="Client Visual", Content=count.." swords modifiés (visuel only)", Duration=4})
+    end)
+end })
 
 -- Bank TOUS les swords de la factory d'un coup (sans flyPickup)
 UpgTab:CreateButton({ Name="Bank All Factory Swords", Callback=function()
