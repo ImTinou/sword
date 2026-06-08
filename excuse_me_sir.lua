@@ -575,6 +575,129 @@ player.CharacterAdded:Connect(function(char)
     end
 end)
 
+-- ═══════════════════════ TAB: EXTRAS ════════════════════════════════════════
+local ExtrasTab = Window:CreateTab("Extras", "gift")
+
+ExtrasTab:CreateSection("Compensation (rewards gratuits)")
+local compLbl = ExtrasTab:CreateLabel("Compensation: —")
+ExtrasTab:CreateButton({ Name="Check + Claim Compensation", Callback=function()
+    local got = false
+    pcall(function()
+        local re = R("CheckCompensation")
+        if re then re:FireServer() end
+    end)
+    pcall(function()
+        local re = R("ClaimCompensation")
+        if re then re:FireServer() got = true end
+    end)
+    pcall(function() compLbl:Set("Claimed! (" .. os.date("%H:%M:%S") .. ")") end)
+    Rayfield:Notify({Title="Compensation", Content=got and "Claim envoyé!" or "Remote introuvable", Duration=3})
+end })
+
+local compSpamming = false
+local compCount = 0
+ExtrasTab:CreateButton({ Name="Spam Claim Compensation", Callback=function()
+    if compSpamming then return end
+    compSpamming = true
+    compCount = 0
+    task.spawn(function()
+        while compSpamming do
+            pcall(function()
+                local re = R("ClaimCompensation")
+                if re then re:FireServer() compCount = compCount + 1 end
+            end)
+            pcall(function() compLbl:Set("Compensation spam: " .. compCount) end)
+            task.wait(0.3)
+        end
+    end)
+    Rayfield:Notify({Title="Compensation", Content="Spam démarré!", Duration=2})
+end })
+ExtrasTab:CreateButton({ Name="Stop Spam", Callback=function()
+    compSpamming = false
+    Rayfield:Notify({Title="Compensation", Content="Arrêté ("..compCount.." claims)", Duration=2})
+end })
+
+ExtrasTab:CreateSection("Player Data (lire les stats)")
+local dataLbl = ExtrasTab:CreateLabel("Data: —")
+ExtrasTab:CreateButton({ Name="Lire mes données", Callback=function()
+    pcall(function()
+        local rf = R("GetPlayerData")
+        if not rf then Rayfield:Notify({Title="GetPlayerData", Content="Remote introuvable", Duration=3}) return end
+        local data = rf:InvokeServer()
+        if type(data) == "table" then
+            local lines = {}
+            for k, v in pairs(data) do
+                if type(v) ~= "table" then
+                    table.insert(lines, k..": "..tostring(v))
+                end
+            end
+            local str = table.concat(lines, " | ")
+            pcall(function() dataLbl:Set(str:sub(1, 100)) end)
+            Rayfield:Notify({Title="Player Data", Content=str:sub(1, 200), Duration=8})
+        elseif data ~= nil then
+            local str = tostring(data)
+            pcall(function() dataLbl:Set(str:sub(1,100)) end)
+            Rayfield:Notify({Title="Player Data", Content=str, Duration=5})
+        else
+            Rayfield:Notify({Title="Player Data", Content="Retourné nil", Duration=3})
+        end
+    end)
+end })
+
+ExtrasTab:CreateSection("Troll")
+
+local shakeTarget = ""
+ExtrasTab:CreateInput({ Name="Pseudo cible (vide = tous)", PlaceholderText="NomDuJoueur", RemoveTextAfterFocusLost=false, Flag="ShakeTarget",
+    Callback=function(v) shakeTarget = v end })
+
+ExtrasTab:CreateButton({ Name="CameraShake sur la cible", Callback=function()
+    pcall(function()
+        local re = R("CameraShake")
+        if not re then Rayfield:Notify({Title="CameraShake", Content="Remote introuvable", Duration=3}) return end
+        if shakeTarget ~= "" then
+            local target = game:GetService("Players"):FindFirstChild(shakeTarget)
+            if target then
+                re:FireServer(target)
+                re:FireServer(target, 10, 1)
+            else
+                Rayfield:Notify({Title="CameraShake", Content="Joueur introuvable", Duration=3})
+                return
+            end
+        else
+            re:FireServer()
+            re:FireServer(10, 1)
+        end
+        Rayfield:Notify({Title="CameraShake", Content="Envoyé!", Duration=2})
+    end)
+end })
+
+local globalMsg = ""
+ExtrasTab:CreateInput({ Name="Message global", PlaceholderText="Ton message...", RemoveTextAfterFocusLost=false, Flag="GlobalMsg",
+    Callback=function(v) globalMsg = v end })
+
+ExtrasTab:CreateButton({ Name="Envoyer GlobalMessage", Callback=function()
+    if globalMsg == "" then Rayfield:Notify({Title="GlobalMessage", Content="Message vide!", Duration=2}) return end
+    local sent = false
+    pcall(function()
+        local re = R("GlobalMessage")
+        if re then re:FireServer(globalMsg) sent = true end
+    end)
+    if not sent then pcall(function()
+        local re = R("GlobalMessageBroadcast")
+        if re then re:FireServer(globalMsg) sent = true end
+    end) end
+    Rayfield:Notify({Title="GlobalMessage", Content=sent and "Envoyé: "..globalMsg or "Remote introuvable", Duration=3})
+end })
+
+ExtrasTab:CreateButton({ Name="SystemChat message", Callback=function()
+    if globalMsg == "" then Rayfield:Notify({Title="SystemChat", Content="Remplis le message d'abord!", Duration=2}) return end
+    pcall(function()
+        local re = R("SystemChatRemote")
+        if re then re:FireServer(globalMsg) end
+    end)
+    Rayfield:Notify({Title="SystemChat", Content="Envoyé!", Duration=2})
+end })
+
 -- ═══════════════════════ TAB: SETTINGS ══════════════════════════════════════
 local SettingsTab = Window:CreateTab("Settings", "settings")
 
