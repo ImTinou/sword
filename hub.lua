@@ -5,7 +5,11 @@ local SCRIPTS = {
     [82432929049078] = {
         name = "Sword Factory X BETA",
         url  = "https://raw.githubusercontent.com/ImTinou/sword/main/enchant_picker.lua",
-    }
+    },
+    [135887679143452] = {
+        name = "Excuse Me Sir",
+        url  = "https://raw.githubusercontent.com/ImTinou/sword/main/excuse_me_sir.lua",
+    },
 }
 
 local placeId = game.PlaceId
