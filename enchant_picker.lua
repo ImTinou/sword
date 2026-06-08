@@ -5,7 +5,7 @@ local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remote
 local remoteFunc   = game:GetService("ReplicatedStorage").Paper.Remotes.__remotefunction
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "0.5.0"
+local VERSION     = "0.6.0"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
@@ -556,9 +556,13 @@ local rarityColors = {
     Unique=1752220, Godly=16711680, Celestial=16777215,
     Eternal=16744703, Cosmic=11534336, Heavenly=16777180,
     Stellar=16744447, Galactic=9699328, Infinity=16744319,
+    -- UPD 13+ nouvelles rarités
+    Immortal=16711935, Deity=16776960, Transcendent=11141375,
+    Omnipotent=16744320, Omniscient=16777086, Immeasurable=16711806,
+    Primordial=11534165,
 }
 
--- Raretés dans l'ordre croissant (UPD — IDs 0→125)
+-- Raretés dans l'ordre croissant (UPD 13+)
 local qualityOrder = {
     "Basic","Common","Uncommon","Rare","Epic",
     "Legendary","Mythical","Divine","Super","Mega",
@@ -566,6 +570,9 @@ local qualityOrder = {
     "Hyper","Godly","Unique","Exotic","Supreme",
     "Celestial","Eternal","Cosmic","Heavenly","Stellar",
     "Galactic","Infinity",
+    -- UPD 13+
+    "Immortal","Deity","Transcendent","Omnipotent","Omniscient",
+    "Immeasurable","Primordial",
 }
 local function qualityRank(text)
     if not text then return 0 end
@@ -579,6 +586,11 @@ end
 local function rarityEmoji(rarity)
     if not rarity then return "⚔️" end
     local tiers = {
+        -- UPD 13+ (plus rare en premier)
+        {k="Primordial",   e="🔱"}, {k="Immeasurable", e="🌀"}, {k="Omniscient",  e="👁️"},
+        {k="Omnipotent",   e="⚜️"}, {k="Transcendent", e="🌠"}, {k="Deity",       e="🏵️"},
+        {k="Immortal",     e="💠"},
+        -- Base
         {k="Infinity", e="🌌"}, {k="Galactic", e="🌠"}, {k="Stellar", e="💫"},
         {k="Heavenly", e="👼"}, {k="Cosmic",   e="🪐"}, {k="Eternal", e="♾️"},
         {k="Celestial",e="✨"}, {k="Supreme",  e="👑"}, {k="Exotic",  e="🔮"},
@@ -1433,25 +1445,108 @@ AscTab:CreateButton({ Name="Pickup Ascender Sword", Callback=function()
     Rayfield:Notify({Title="Ascender", Content=ok and "Picked up!" or tostring(err), Duration=3})
 end })
 
+-- ===================== TRANSCENDER (UPD 13+) =====================
+local transcending    = false
+local transcAttempts  = 0
+local transcTarget    = "Deity"
+local transcMode      = "Rarity"
+
+local function getTranscenderSword()
+    local stats = game:GetService("ReplicatedStorage"):FindFirstChild("Stats")
+    if not stats then return nil end
+    local pStats = stats:FindFirstChild(player.Name)
+    if not pStats then return nil end
+    local folder = pStats:FindFirstChild("Transcender")
+    if not folder then return nil end
+    local children = folder:GetChildren()
+    if #children == 0 then return nil end
+    local uuid = children[1].Name
+    local sword = workspace.Swords:FindFirstChild(uuid)
+    if sword then return sword end
+    return workspace:FindFirstChild(uuid, true)
+end
+
+local TrscTab = Window:CreateTab("Transcender", "zap")
+
+TrscTab:CreateSection("Config")
+local trscStatusLbl = TrscTab:CreateLabel("Transcender: Idle")
+TrscTab:CreateDropdown({ Name="Mode", Options={"Rarity","Quality","Level","Mold","Class","Enchant"}, CurrentOption="Rarity", MultipleOptions=false, Flag="TrscMode",
+    Callback=function(o) transcMode=type(o)=="table" and o[1] or o end })
+TrscTab:CreateDropdown({ Name="Stop at", Options=qualityOrder, CurrentOption="Deity", MultipleOptions=false, Flag="TrscTarget",
+    Callback=function(o) transcTarget=type(o)=="table" and o[1] or o end })
+
+TrscTab:CreateSection("Control")
+TrscTab:CreateButton({ Name="Start Auto-Transcend", Callback=function()
+    if transcending then return end
+    if not getTranscenderSword() then
+        Rayfield:Notify({Title="Transcender", Content="No sword in Transcender!", Duration=3}) return
+    end
+    transcending=true transcAttempts=0
+    task.spawn(function()
+        while transcending do
+            local s = getTranscenderSword()
+            if not s then
+                task.wait(1)
+                s = getTranscenderSword()
+                if not s then
+                    transcending=false
+                    pcall(function() trscStatusLbl:Set("Sword introuvable") end)
+                    break
+                end
+            end
+            local q = "?"
+            pcall(function() q = stripRichText(s.Main.Gui.ItemInfo.RarityQuality.Text) end)
+            if qualityRank(q) >= qualityRank(transcTarget) then
+                transcending=false
+                pcall(function() trscStatusLbl:Set("Done! "..q.." | "..transcAttempts.." tries") end)
+                Rayfield:Notify({Title="Transcender", Content=q.." in "..transcAttempts.." tries!", Duration=6})
+                sendAscenderWebhook(s, q, transcAttempts)
+                break
+            end
+            pcall(function() remote:FireServer("Set Transcender Mode", transcMode) end)
+            transcAttempts=transcAttempts+1
+            pcall(function() trscStatusLbl:Set(q.." | "..transcAttempts.." tries") end)
+            task.wait(0.15)
+        end
+        transcending=false
+    end)
+    Rayfield:Notify({Title="Transcender", Content="Started!", Duration=2})
+end })
+TrscTab:CreateButton({ Name="Stop", Callback=function()
+    transcending=false Rayfield:Notify({Title="Transcender", Content="Stopped.", Duration=2})
+end })
+TrscTab:CreateButton({ Name="Pickup Transcender Sword", Callback=function()
+    local ok, err = pcall(function() remoteFunc:InvokeServer("Pickup Transcender") end)
+    Rayfield:Notify({Title="Transcender", Content=ok and "Picked up!" or tostring(err), Duration=3})
+end })
+
 -- ===================== AUTO-UPGRADE =====================
 local autoUpgrading = false
-local upgEnabled = { Conveyor=false, Appraiser=false, Polisher=false, Upgrader=false, Molder=false, Classifier=false, Enchanter=false, Ascender=false }
+local autoPrestiging = false
+local MACHINE_LIST = {"Conveyor","Appraiser","Polisher","Upgrader","Molder","Classifier","Enchanter","Ascender","Transcender","Bank","SellStation"}
+local upgEnabled = {}
+local presEnabled = {}
+for _, m in ipairs(MACHINE_LIST) do upgEnabled[m]=false presEnabled[m]=false end
 
 local UpgTab = Window:CreateTab("Upgrade", "wrench")
 
-UpgTab:CreateSection("Machines")
-for _, machine in ipairs({"Conveyor","Appraiser","Polisher","Upgrader","Molder","Classifier","Enchanter","Ascender"}) do
+UpgTab:CreateSection("Machines (Upgrade)")
+for _, machine in ipairs(MACHINE_LIST) do
     local m = machine
     UpgTab:CreateToggle({ Name=m, CurrentValue=false, Flag="Upg"..m, Callback=function(v) upgEnabled[m]=v end })
 end
 
-UpgTab:CreateSection("Control")
+UpgTab:CreateSection("Control Upgrade")
 local upgStatusLbl = UpgTab:CreateLabel("Auto-Upgrade: Idle")
-UpgTab:CreateButton({ Name="Upgrade Now", Callback=function()
-    for _, m in ipairs({"Conveyor","Appraiser","Polisher","Upgrader","Molder","Classifier","Enchanter","Ascender"}) do
-        if upgEnabled[m] then pcall(function() remoteFunc:InvokeServer("Upgrade Machine", m, 1) end) end
+UpgTab:CreateButton({ Name="Upgrade Now (x1)", Callback=function()
+    local done = {}
+    for _, m in ipairs(MACHINE_LIST) do
+        if upgEnabled[m] then
+            pcall(function() remoteFunc:InvokeServer("Upgrade Machine", m, 1) end)
+            table.insert(done, m)
+        end
     end
-    Rayfield:Notify({Title="Upgrade", Content="Done!", Duration=2})
+    Rayfield:Notify({Title="Upgrade", Content=#done>0 and table.concat(done,", ") or "Rien sélectionné", Duration=2})
 end })
 UpgTab:CreateButton({ Name="Start Auto-Upgrade", Callback=function()
     if autoUpgrading then return end
@@ -1459,11 +1554,11 @@ UpgTab:CreateButton({ Name="Start Auto-Upgrade", Callback=function()
     task.spawn(function()
         while autoUpgrading do
             local upgraded={}
-            for _, m in ipairs({"Conveyor","Appraiser","Polisher","Upgrader","Molder","Classifier","Enchanter","Ascender"}) do
+            for _, m in ipairs(MACHINE_LIST) do
                 if upgEnabled[m] then
                     pcall(function() remoteFunc:InvokeServer("Upgrade Machine", m, 1) end)
                     table.insert(upgraded, m)
-                    task.wait(0.2)
+                    task.wait(0.15)
                 end
             end
             pcall(function() upgStatusLbl:Set(#upgraded>0 and "Upgraded: "..table.concat(upgraded,", ") or "No machine selected") end)
@@ -1475,6 +1570,50 @@ UpgTab:CreateButton({ Name="Start Auto-Upgrade", Callback=function()
 end })
 UpgTab:CreateButton({ Name="Stop Auto-Upgrade", Callback=function()
     autoUpgrading=false Rayfield:Notify({Title="Upgrade", Content="Stopped.", Duration=2})
+end })
+
+UpgTab:CreateSection("Prestige Machines (UPD 13+)")
+for _, machine in ipairs({"Conveyor","Appraiser","Polisher","Upgrader","Molder","Classifier","Enchanter","Ascender","Transcender"}) do
+    local m = machine
+    UpgTab:CreateToggle({ Name="Prestige "..m, CurrentValue=false, Flag="Pres"..m, Callback=function(v) presEnabled[m]=v end })
+end
+
+local presStatusLbl = UpgTab:CreateLabel("Auto-Prestige: Idle")
+UpgTab:CreateButton({ Name="Prestige Now", Callback=function()
+    local done = {}
+    for _, m in ipairs({"Conveyor","Appraiser","Polisher","Upgrader","Molder","Classifier","Enchanter","Ascender","Transcender"}) do
+        if presEnabled[m] then
+            pcall(function() remoteFunc:InvokeServer("Prestige Machine", m) end)
+            -- alt pattern
+            pcall(function() remoteFunc:InvokeServer("Prestige", m) end)
+            table.insert(done, m)
+        end
+    end
+    Rayfield:Notify({Title="Prestige", Content=#done>0 and table.concat(done,", ") or "Rien sélectionné", Duration=3})
+end })
+UpgTab:CreateButton({ Name="Start Auto-Prestige", Callback=function()
+    if autoPrestiging then return end
+    autoPrestiging=true
+    task.spawn(function()
+        while autoPrestiging do
+            local done = {}
+            for _, m in ipairs({"Conveyor","Appraiser","Polisher","Upgrader","Molder","Classifier","Enchanter","Ascender","Transcender"}) do
+                if presEnabled[m] then
+                    pcall(function() remoteFunc:InvokeServer("Prestige Machine", m) end)
+                    pcall(function() remoteFunc:InvokeServer("Prestige", m) end)
+                    table.insert(done, m)
+                    task.wait(0.2)
+                end
+            end
+            pcall(function() presStatusLbl:Set(#done>0 and "Prestiged: "..table.concat(done,", ") or "Rien sélectionné") end)
+            task.wait(5)
+        end
+        pcall(function() presStatusLbl:Set("Auto-Prestige: Stopped") end)
+    end)
+    Rayfield:Notify({Title="Prestige", Content="Auto-prestige started!", Duration=2})
+end })
+UpgTab:CreateButton({ Name="Stop Auto-Prestige", Callback=function()
+    autoPrestiging=false Rayfield:Notify({Title="Prestige", Content="Stopped.", Duration=2})
 end })
 
 UpgTab:CreateSection("Actions")
@@ -1755,4 +1894,45 @@ end })
 MiscTab:CreateButton({ Name="Unequip tout", Callback=function()
     pcall(function() remote:FireServer("Unequip All") end)
     Rayfield:Notify({Title="Unequip", Content="Done!", Duration=2})
+end })
+
+MiscTab:CreateSection("Cases (UPD 13+)")
+
+local caseTypes = {"WoodenCase","SilverCase","GoldCase","DiamondCase","CrystalCase"}
+local selectedCase = "WoodenCase"
+local autoCaseOpening = false
+
+MiscTab:CreateDropdown({ Name="Type de case", Options=caseTypes, CurrentOption="WoodenCase", MultipleOptions=false, Flag="CaseType",
+    Callback=function(o) selectedCase = type(o)=="table" and o[1] or o end })
+
+local caseLbl = MiscTab:CreateLabel("Cases: Idle")
+MiscTab:CreateButton({ Name="Ouvrir 1 Case", Callback=function()
+    pcall(function() remoteFunc:InvokeServer("Open Case", selectedCase) end)
+    pcall(function() remoteFunc:InvokeServer("OpenCase", selectedCase) end)
+    Rayfield:Notify({Title="Case", Content="Ouvert: "..selectedCase, Duration=2})
+end })
+MiscTab:CreateToggle({ Name="Auto-Open Cases", CurrentValue=false, Flag="AutoCase",
+    Callback=function(v)
+        autoCaseOpening = v
+        if v then
+            task.spawn(function()
+                local count = 0
+                while autoCaseOpening do
+                    pcall(function() remoteFunc:InvokeServer("Open Case", selectedCase) end)
+                    pcall(function() remoteFunc:InvokeServer("OpenCase", selectedCase) end)
+                    count = count + 1
+                    pcall(function() caseLbl:Set("Cases ouverts: "..count) end)
+                    task.wait(0.5)
+                end
+                pcall(function() caseLbl:Set("Cases: Stopped | "..count.." ouverts") end)
+            end)
+        end
+    end
+})
+
+MiscTab:CreateSection("Shards (UPD 13+)")
+MiscTab:CreateButton({ Name="Collect Shards", Callback=function()
+    pcall(function() remoteFunc:InvokeServer("Collect Shards") end)
+    pcall(function() remoteFunc:InvokeServer("Claim Shards") end)
+    Rayfield:Notify({Title="Shards", Content="Collect envoyé!", Duration=2})
 end })
