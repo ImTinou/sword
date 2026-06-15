@@ -5,7 +5,7 @@ local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remote
 local remoteFunc   = game:GetService("ReplicatedStorage").Paper.Remotes.__remotefunction
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "0.7.0"
+local VERSION     = "0.7.1"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
@@ -75,36 +75,80 @@ end
 
 loadConfig()
 local VirtualUser = game:GetService("VirtualUser")
+local Players     = game:GetService("Players")
 
--- Anti-AFK: 3 méthodes combinées pour être sûr
--- 1) Disable le kick AFK natif de Roblox
-local Players = game:GetService("Players")
+-- ════════════════════════ ANTI-AFK (renforcé) ═══════════════════════════════
+-- Le jeu fait: Idled:Connect(function(t) if t>900 then Network.FireServer("Rejoin") end end)
+-- => à 15min d'inactivité il te REJOIN (= le "kick" que tu subis).
+-- Le jeu détecte aussi l'activité via UserInputService:GetLastInputType(), que
+-- VirtualUser NE met PAS à jour sur la plupart des executors. D'où l'échec.
+--
+-- Fix combiné :
+--   1) VirtualInputManager = vraie input (reset le timer natif + GetLastInputType)
+--   2) Hook __namecall : bloque le FireServer("Rejoin") AUTOMATIQUE
+--   3) VirtualUser + jump = fallback
+
+local allowRejoin = false  -- mis à true par le bouton Rejoin manuel
+local VIM = nil
+pcall(function() VIM = game:GetService("VirtualInputManager") end)
+
+-- 1) Vraie input toutes les 60s via VirtualInputManager
+local function pulseInput()
+    if not VIM then return false end
+    local ok = pcall(function()
+        VIM:SendKeyEvent(true,  Enum.KeyCode.LeftShift, false, game)
+        task.wait(0.05)
+        VIM:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
+    end)
+    return ok
+end
+
+-- 2) Hook pour bloquer le Rejoin automatique
+if type(hookmetamethod) == "function" and type(getnamecallmethod) == "function" then
+    local oldNc
+    oldNc = hookmetamethod(game, "__namecall", function(self, ...)
+        if ANTI_AFK and not allowRejoin then
+            local m = getnamecallmethod()
+            if m == "FireServer" or m == "fireServer" then
+                local a1 = (...)
+                if a1 == "Rejoin" then
+                    return  -- drop: on ignore le rejoin auto déclenché par l'AFK
+                end
+            end
+        end
+        return oldNc(self, ...)
+    end)
+end
+
+-- 3) Réagit aussi à Idled (au cas où) + fallback VirtualUser
 Players.LocalPlayer.Idled:Connect(function()
-    if ANTI_AFK then
-        -- Fire un faux input pour reset le timer AFK interne
+    if not ANTI_AFK then return end
+    pulseInput()
+    pcall(function()
         VirtualUser:CaptureController()
         VirtualUser:ClickButton2(Vector2.new())
-    end
+    end)
 end)
 
--- 2) Simule un mouvement de caméra toutes les 60s
+-- Boucle proactive : input réelle + caméra toutes les ~60s
 task.spawn(function()
     while true do
         task.wait(55)
         if ANTI_AFK then
-            local cam = workspace.CurrentCamera
-            VirtualUser:Button2Down(cam.ViewportSize / 2, cam.CFrame)
-            task.wait(0.1)
-            VirtualUser:Button2Up(cam.ViewportSize / 2, cam.CFrame)
-            -- Simule aussi un petit mouvement pour reset le timer Roblox
-            VirtualUser:Button1Down(cam.ViewportSize / 2, cam.CFrame)
-            task.wait(0.05)
-            VirtualUser:Button1Up(cam.ViewportSize / 2, cam.CFrame)
+            if not pulseInput() then
+                -- fallback VirtualUser si VIM indispo
+                pcall(function()
+                    local cam = workspace.CurrentCamera
+                    VirtualUser:Button2Down(cam.ViewportSize / 2, cam.CFrame)
+                    task.wait(0.1)
+                    VirtualUser:Button2Up(cam.ViewportSize / 2, cam.CFrame)
+                end)
+            end
         end
     end
 end)
 
--- 3) Jump aléatoire toutes les 3-4 min pour paraître actif
+-- Jump léger toutes les 3-4 min pour bouger le perso (activité serveur)
 task.spawn(function()
     while true do
         task.wait(math.random(170, 230))
@@ -1898,6 +1942,7 @@ end })
 
 MiscTab:CreateSection("Serveur")
 MiscTab:CreateButton({ Name="Rejoin serveur", Callback=function()
+    allowRejoin = true  -- laisse passer le Rejoin malgré l'anti-AFK
     pcall(function() remote:FireServer("Rejoin") end)
     pcall(function()
         game:GetService("TeleportService"):Teleport(game.PlaceId, player)

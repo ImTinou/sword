@@ -8,8 +8,34 @@ local UIS          = game:GetService("UserInputService")
 local HS           = game:GetService("HttpService")
 local VU           = game:GetService("VirtualUser")
 
-local VERSION  = "0.1.0"
+local VERSION  = "0.3.0"
 local SAVE_FILE = "tinouhub_ems_config.json"
+
+-- ── Remote Spy ───────────────────────────────────────────────────────────────
+-- Hook __namecall pour intercepter tous les FireServer/InvokeServer du jeu
+-- Fait un warn() dans la console pour chaque appel → ouvre la crate manuellement
+-- et regarde ce qui apparaît dans Output pour connaître les vrais args
+local spyEnabled = false
+local spyCaptured = {}
+
+local oldNamecall
+oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+    local method = getnamecallmethod()
+    if spyEnabled and (method == "FireServer" or method == "InvokeServer") then
+        if self:IsA("RemoteEvent") or self:IsA("RemoteFunction") then
+            local args = {...}
+            local parts = { "[SPY] " .. self.Name .. ":" .. method .. "(" }
+            for _, a in ipairs(args) do
+                table.insert(parts, tostring(a) .. ", ")
+            end
+            table.insert(parts, ")")
+            local msg = table.concat(parts)
+            table.insert(spyCaptured, msg)
+            warn(msg)
+        end
+    end
+    return oldNamecall(self, ...)
+end)
 
 -- ── Config ──────────────────────────────────────────────────────────────────
 local AUTO_OFFLINE   = true
@@ -80,18 +106,50 @@ local function getRebirths()
     return getLeaderstat("Rebirths") or getLeaderstat("Prestige") or 0
 end
 
--- ── Anti-AFK ────────────────────────────────────────────────────────────────
+-- ── Anti-AFK (renforcé) ─────────────────────────────────────────────────────
+-- VirtualInputManager = vraie input (reset le timer natif + GetLastInputType).
+-- VirtualUser seul ne met pas à jour GetLastInputType sur bcp d'executors.
+local VIM = nil
+pcall(function() VIM = game:GetService("VirtualInputManager") end)
+
+local function pulseInput()
+    if not VIM then return false end
+    return (pcall(function()
+        VIM:SendKeyEvent(true,  Enum.KeyCode.LeftShift, false, game)
+        task.wait(0.05)
+        VIM:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
+    end))
+end
+
 player.Idled:Connect(function()
-    if ANTI_AFK then VU:CaptureController() VU:ClickButton2(Vector2.new()) end
+    if not ANTI_AFK then return end
+    pulseInput()
+    pcall(function() VU:CaptureController() VU:ClickButton2(Vector2.new()) end)
 end)
 task.spawn(function()
     while true do
         task.wait(55)
         if ANTI_AFK then
-            local cam = workspace.CurrentCamera
-            VU:Button2Down(cam.ViewportSize/2, cam.CFrame)
-            task.wait(0.1)
-            VU:Button2Up(cam.ViewportSize/2, cam.CFrame)
+            if not pulseInput() then
+                pcall(function()
+                    local cam = workspace.CurrentCamera
+                    VU:Button2Down(cam.ViewportSize/2, cam.CFrame)
+                    task.wait(0.1)
+                    VU:Button2Up(cam.ViewportSize/2, cam.CFrame)
+                end)
+            end
+        end
+    end
+end)
+-- Jump léger périodique (activité serveur)
+task.spawn(function()
+    while true do
+        task.wait(math.random(170, 230))
+        if ANTI_AFK then
+            pcall(function()
+                local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+                if hum then hum.Jump = true end
+            end)
         end
     end
 end)
