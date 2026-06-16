@@ -1,4 +1,4 @@
--- TinouHub v1.0 — Universal game hub
+-- TinouHub v1.1 — Universal game hub
 -- loadstring(game:HttpGet("https://raw.githubusercontent.com/ImTinou/sword/main/hub.lua"))()
 
 local SCRIPTS = {
@@ -21,7 +21,10 @@ local entry   = SCRIPTS[placeId]
 
 if entry then
     local ok, err = pcall(function()
-        loadstring(game:HttpGet(entry.url, true))()
+        -- cache-buster : évite que raw.githubusercontent serve une vieille version (CDN ~5min)
+        local sep = entry.url:find("?") and "&" or "?"
+        local url = entry.url .. sep .. "_=" .. tostring(os.time()) .. tostring(math.random(1, 1e6))
+        loadstring(game:HttpGet(url, true))()
     end)
     if not ok then
         warn("[TinouHub] Erreur lors du chargement de " .. entry.name .. ": " .. tostring(err))
