@@ -224,7 +224,7 @@ local Window = Rayfield:CreateWindow({
 })
 
 -- ═══════════════════════ FARM ═══════════════════════════════════════════════
-local FarmTab = Window:CreateTab("Farm", "lemon")
+local FarmTab = Window:CreateTab("Farm", "dollar-sign")
 
 FarmTab:CreateSection("Cash Drops (auto-collect instantané)")
 collectStatusLbl = FarmTab:CreateLabel("Collectés: 0")
