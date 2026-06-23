@@ -8,7 +8,7 @@ local UIS        = game:GetService("UserInputService")
 local RunS       = game:GetService("RunService")
 local TPS        = game:GetService("TeleportService")
 
-local VERSION   = "1.5.0"
+local VERSION   = "1.6.0"
 local SAVE_FILE = "tinouhub_noob_config.json"
 
 -- ════════════════════════ Session ═══════════════════════════════════════════
@@ -26,8 +26,8 @@ local function httpRequest(opts)
     if type(req) ~= "function" then return nil end
     return (select(2, pcall(req, opts)))
 end
-local function discordLog(title, desc, color)
-    if not DISCORD_ON or WEBHOOK == "" then return end
+local function discordLog(title, desc, color, force)
+    if (not DISCORD_ON and not force) or WEBHOOK == "" then return end
     task.spawn(function()
         pcall(function()
             local body = HS:JSONEncode({
@@ -552,9 +552,68 @@ SetTab:CreateButton({ Name="🕵️ Spy MainRemote (8s — fais une action!)", C
     end)
 end })
 
+-- ════════════════════ Stats périodiques (Discord) ═══════════════════════════
+local STATS_ON = false
+local startTime = os.time()
+local function fmtNum(v)
+    local n = tonumber(v)
+    if not n or n ~= n then return tostring(v) end
+    if math.abs(n) >= 1e6 then return string.format("%.2e", n) end
+    return string.format("%d", math.floor(n))
+end
+local function buildStatsLines()
+    local rf = RS:FindFirstChild("GetPlayerData", true)
+    if not rf then return nil end
+    local ok, d = pcall(function() return rf:InvokeServer() end)
+    if not ok or type(d) ~= "table" then return nil end
+    local cur, sv = d.CURRENCIES or {}, d.SIMPLE_VALUES or {}
+    local function amt(name) local c = cur[name] return c and c.Amount and c.Amount[1] end
+    local prev = _env.TINOUHUB_LASTSTATS or {}
+    local now = {}
+    local function line(label, key, val)
+        local n = tonumber(val)
+        now[key] = n
+        local delta = ""
+        if n and prev[key] then local dv = n - prev[key]
+            if dv ~= 0 then delta = "  ("..(dv>0 and "+" or "")..fmtNum(dv)..")" end end
+        return "**"..label.."**: "..fmtNum(val)..delta
+    end
+    local L = {}
+    for _, p in ipairs({{"Gems","Gem"},{"Coins","Coin"},{"Wood","Wood"},{"Water","Water"},{"Blaze","Blaze"}}) do
+        local a = amt(p[2]); if a then table.insert(L, line(p[1], p[2], a)) end
+    end
+    if sv.TotalOreBreak then table.insert(L, line("Ores cassés (total)", "ore", sv.TotalOreBreak)) end
+    if sv.TotalCapsuleOpened then table.insert(L, line("Capsules ouvertes", "caps", sv.TotalCapsuleOpened)) end
+    table.insert(L, "**Session minée (script)**: "..tostring(totalMined))
+    table.insert(L, "**Uptime**: "..math.floor((os.time()-startTime)/60).."min")
+    _env.TINOUHUB_LASTSTATS = now
+    return table.concat(L, "\n")
+end
+local function sendStats()
+    local body = buildStatsLines()
+    if not body then return false end
+    discordLog("📊 Stats — "..player.Name, body, 15844367, true)  -- force=true
+    return true
+end
+task.spawn(function()
+    while active() do
+        task.wait(300)  -- 5 min
+        if active() and STATS_ON and WEBHOOK ~= "" then pcall(sendStats) end
+    end
+end)
+
 SetTab:CreateSection("Logs Discord")
 SetTab:CreateInput({ Name="Webhook URL", CurrentValue=WEBHOOK, PlaceholderText="https://discord.com/api/webhooks/...",
     RemoveTextAfterFocusLost=false, Flag="Webhook", Callback=function(t) WEBHOOK = t or "" end })
+SetTab:CreateToggle({ Name="📊 Stats auto (toutes les 5 min)", CurrentValue=false, Flag="StatsAuto",
+    Callback=function(v) STATS_ON=v
+        if v then if WEBHOOK=="" then Rayfield:Notify({Title="Stats",Content="Configure le webhook d'abord",Duration=4})
+            else pcall(sendStats) end end end })
+SetTab:CreateButton({ Name="📊 Envoyer stats maintenant", Callback=function()
+    if WEBHOOK=="" then Rayfield:Notify({Title="Stats",Content="Webhook requis (mets l'URL au-dessus)",Duration=4}) return end
+    local ok = pcall(sendStats)
+    Rayfield:Notify({Title="Stats", Content=ok and "Stats envoyées (check Discord)" or "GetPlayerData a échoué", Duration=4})
+end })
 SetTab:CreateToggle({ Name="Activer les logs Discord", CurrentValue=false, Flag="DiscordOn",
     Callback=function(v) DISCORD_ON=v if v then discordLog("✅ Logs activés", "Sur **"..player.Name.."**", 5763719) end end })
 SetTab:CreateButton({ Name="📨 Test webhook", Callback=function()
