@@ -8,7 +8,7 @@ local UIS        = game:GetService("UserInputService")
 local RunS       = game:GetService("RunService")
 local TPS        = game:GetService("TeleportService")
 
-local VERSION   = "1.4.0"
+local VERSION   = "1.4.1"
 local SAVE_FILE = "tinouhub_noob_config.json"
 
 -- ════════════════════════ Session ═══════════════════════════════════════════
@@ -472,6 +472,61 @@ SetTab:CreateButton({ Name="📡 Dump remotes + scripts AFK", Callback=function(
     print(dump)
     pcall(function() setclipboard(dump) end)
     Rayfield:Notify({Title="Debug", Content=#lines.." lignes — copié + console (F9)", Duration=5})
+end })
+
+SetTab:CreateSection("Exploration (sonde le jeu)")
+-- sérialiseur lisible (tables/instances/fonctions), profondeur limitée
+local function serialize(v, depth, seen)
+    depth = depth or 0
+    local t = typeof(v)
+    if t == "Instance" then return "<"..v.ClassName..":"..v.Name..">"
+    elseif t == "table" then
+        if depth > 3 then return "{...}" end
+        seen = seen or {}
+        if seen[v] then return "<cycle>" end
+        seen[v] = true
+        local parts, n = {}, 0
+        for k, val in pairs(v) do
+            n = n + 1
+            if n > 50 then table.insert(parts, "...") break end
+            table.insert(parts, tostring(k).." = "..serialize(val, depth+1, seen))
+        end
+        return "{ "..table.concat(parts, ", ").." }"
+    elseif t == "function" then return "<function>"
+    elseif t == "string" then return '"'..v..'"'
+    else return tostring(v) end
+end
+local function publish(title, body)
+    local dump = "=== "..title.." ===\n"..body
+    print(dump) pcall(function() setclipboard(dump) end)
+    Rayfield:Notify({Title="Explore", Content=title.." — copié + F9", Duration=5})
+end
+-- invoque une RemoteFunction et dump le résultat (ex: tes données joueur)
+SetTab:CreateButton({ Name="🔍 Dump mes données (GetPlayerData)", Callback=function()
+    local rf = RS:FindFirstChild("GetPlayerData", true) or RS:FindFirstChild("GetMyData", true)
+    if not rf then Rayfield:Notify({Title="Explore",Content="GetPlayerData introuvable",Duration=4}) return end
+    local ok, res = pcall(function() return rf:InvokeServer() end)
+    publish("GetPlayerData", ok and serialize(res) or ("erreur: "..tostring(res)))
+end })
+-- require un module du jeu et dump son contenu
+SetTab:CreateButton({ Name="📦 Dump module Minerals", Callback=function()
+    local mod = loadModule(SMF, "Minerals")
+    publish("Module Minerals", mod and serialize(mod) or "module introuvable / non-requireable")
+end })
+-- spy ciblé MainRemote: capture les commandes quand tu fais une action (8s)
+SetTab:CreateButton({ Name="🕵️ Spy MainRemote (8s — fais une action!)", Callback=function()
+    if not installUniversalSpy() then
+        Rayfield:Notify({Title="Spy", Content="hookfunction non supporté?", Duration=5}) return
+    end
+    _env.TINOUHUB_SPYLOG = {}
+    _env.TINOUHUB_SPYUNTIL = os.clock() + 8
+    Rayfield:Notify({Title="Spy", Content="FAIS UNE ACTION (achat/prestige/exchange) — 8s", Duration=8})
+    task.delay(8.2, function()
+        local keys = {}
+        for k in pairs(_env.TINOUHUB_SPYLOG) do table.insert(keys, k) end
+        table.sort(keys)
+        publish("ACTIONS CAPTURÉES ("..#keys..")", table.concat(keys, "\n"))
+    end)
 end })
 
 SetTab:CreateSection("Logs Discord")
