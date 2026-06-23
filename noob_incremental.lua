@@ -24,9 +24,16 @@ end
 -- ════════════════════════ Feature modules (listes live) ═════════════════════
 -- Les listes (pioches, ores, auras...) sont dans RS.Shared.Modules.FEATURES.*
 local function featureModule(...)
+    local segs = {...}
     local ok, mod = pcall(function()
-        local obj = RS:WaitForChild("Shared", 5):WaitForChild("Modules"):WaitForChild("FEATURES")
-        for _, seg in ipairs({...}) do obj = obj:FindFirstChild(seg) end
+        if type(require) ~= "function" then return nil end
+        local shared = RS:FindFirstChild("Shared")
+        local modules = shared and shared:FindFirstChild("Modules")
+        local obj = modules and modules:FindFirstChild("FEATURES")
+        for _, seg in ipairs(segs) do
+            obj = obj and obj:FindFirstChild(seg)
+        end
+        if not obj then return nil end
         return require(obj)
     end)
     if ok and type(mod) == "table" then return mod end
