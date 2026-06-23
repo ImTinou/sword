@@ -177,6 +177,33 @@ MineTab:CreateButton({ Name="↻ Rescanner les ores", Callback=function()
     pcall(function() oreDropdown:Refresh(oreNamesPresent()) end)
     Rayfield:Notify({Title="Mine", Content="Ores rescannés", Duration=2})
 end })
+MineTab:CreateButton({ Name="🐛 Debug ores (copie les noms)", Callback=function()
+    local h = hrp()
+    local origin = h and h.Position or Vector3.new()
+    local seen, lines = {}, {}
+    for _, m in ipairs(workspace:GetDescendants()) do
+        if m:IsA("Model") then
+            local p = orePart(m)
+            if p then
+                local d = (p.Position - origin).Magnitude
+                if d <= 600 then
+                    local key = m.Name
+                    if not seen[key] then
+                        seen[key] = true
+                        local hum = m:FindFirstChildOfClass("Humanoid")
+                        table.insert(lines, string.format("%-22s | %s | %s | %dst",
+                            m.Name, m:GetFullName(), hum and "HP="..tostring(hum.Health) or "noHum", math.floor(d)))
+                    end
+                end
+            end
+        end
+    end
+    table.sort(lines)
+    local dump = "ORE DEBUG ("..#lines.." modèles uniques <600st):\n"..table.concat(lines,"\n")
+    print(dump)
+    pcall(function() setclipboard(dump) end)
+    Rayfield:Notify({Title="Debug", Content=#lines.." modèles trouvés — copié + console (F9)", Duration=5})
+end })
 
 MineTab:CreateSection("Auto-Mine")
 mineStatusLbl = MineTab:CreateLabel("Mine: Idle")
