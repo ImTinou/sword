@@ -7,7 +7,7 @@ local UIS        = game:GetService("UserInputService")
 local HS         = game:GetService("HttpService")
 local VU         = game:GetService("VirtualUser")
 
-local VERSION   = "0.2.0"
+local VERSION   = "0.3.0"
 local SAVE_FILE = "tinouhub_noob_config.json"
 
 -- ════════════════════════ MainRemote ════════════════════════════════════════
@@ -385,6 +385,28 @@ BugTab:CreateButton({ Name="UsePotion(nom, qty)", Callback=function() Fire("UseP
 local dropId=""
 BugTab:CreateInput({ Name="Drop ID", PlaceholderText="id", RemoveTextAfterFocusLost=false, Flag="DID", Callback=function(v) dropId=v end })
 BugTab:CreateButton({ Name="TycoonDropSell x20 (dupe?)", Callback=function() if dropId=="" then return end task.spawn(function() for i=1,20 do Fire("TycoonDropSell", dropId) task.wait(0.08) end end) end })
+
+-- ── Currency-swap (LE meilleur lead) ────────────────────────────────────────
+-- UpgradeUpgrade(currency, id): le client choisit la monnaie. Si le serveur
+-- déduit la monnaie nommée sans vérifier qu'elle matche l'upgrade => on paie
+-- un upgrade cher avec une monnaie qu'on a à l'infini (ex: Oof).
+-- 1) Active le Spy (Settings), clique un upgrade en jeu, note l'ID affiché:
+--    "UpgradeUpgrade(<currency>, <ID>)"
+-- 2) Mets l'ID ici + une monnaie que t'as à gogo, et test.
+BugTab:CreateSection("🎯 Currency-Swap UpgradeUpgrade")
+BugTab:CreateLabel("Spy un upgrade (Settings) pour avoir currency+ID")
+local swCur, swId = "Oof", ""
+BugTab:CreateInput({ Name="Monnaie à utiliser (que t'as bcp)", PlaceholderText="Oof", RemoveTextAfterFocusLost=false, Flag="SWC", Callback=function(v) if v~="" then swCur=v end end })
+BugTab:CreateInput({ Name="Upgrade ID (via spy)", PlaceholderText="ex: MoreOreStats / un id", RemoveTextAfterFocusLost=false, Flag="SWI", Callback=function(v) swId=v end })
+BugTab:CreateButton({ Name="UpgradeUpgradeMax(monnaie, id)", Callback=function()
+    if swId=="" then Rayfield:Notify({Title="Swap",Content="Mets l'ID (spy d'abord)",Duration=3}) return end
+    Fire("UpgradeUpgradeMax", swCur, swId)
+    Rayfield:Notify({Title="Swap",Content=swCur.." -> "..swId,Duration=3})
+end })
+BugTab:CreateButton({ Name="UpgradeUpgrade x25 (spam)", Callback=function()
+    if swId=="" then return end
+    task.spawn(function() for i=1,25 do Fire("UpgradeUpgrade", swCur, swId) task.wait(0.08) end end)
+end })
 
 -- ═══════════════════ PLAYER ═════════════════════════════════════════════════
 local PlayerTab = Window:CreateTab("Player", "user")
