@@ -8,7 +8,7 @@ local UIS        = game:GetService("UserInputService")
 local RunS       = game:GetService("RunService")
 local TPS        = game:GetService("TeleportService")
 
-local VERSION   = "1.2.0"
+local VERSION   = "1.3.0"
 local SAVE_FILE = "tinouhub_noob_config.json"
 
 -- ════════════════════════ Session ═══════════════════════════════════════════
@@ -123,6 +123,20 @@ local function jitterMove()
         if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then h.CFrame = cf end
     end))
 end
+-- désactive le script AFK CLIENT du jeu (PlayerScripts...ClientLauncher.AFKScript)
+local KILL_GAME_AFK = true
+local function killGameAFK()
+    if not KILL_GAME_AFK then return end
+    pcall(function()
+        local ps = player:FindFirstChild("PlayerScripts")
+        if not ps then return end
+        local afk = ps:FindFirstChild("AFKScript", true)
+        if afk then afk.Disabled = true afk:Destroy() end
+    end)
+end
+killGameAFK()
+task.delay(3, killGameAFK)  -- au cas où il se charge un peu après
+
 player.Idled:Connect(function()
     if not active() or not ANTI_AFK then return end
     pulseInput()
@@ -353,9 +367,44 @@ SetTab:CreateButton({ Name="🔄 Reload script", Callback=function()
     task.wait(0.3)
     loadstring(game:HttpGet("https://raw.githubusercontent.com/ImTinou/sword/main/noob_incremental.lua?v="..tostring(os.time())))()
 end })
-SetTab:CreateToggle({ Name="Anti-AFK", CurrentValue=ANTI_AFK, Flag="AFK", Callback=function(v) ANTI_AFK=v saveConfig() end })
+SetTab:CreateToggle({ Name="Anti-AFK (input + mouvement)", CurrentValue=ANTI_AFK, Flag="AFK", Callback=function(v) ANTI_AFK=v saveConfig() end })
+SetTab:CreateToggle({ Name="Désactiver l'AFK du jeu (AFKScript)", CurrentValue=true, Flag="KillAFK",
+    Callback=function(v) KILL_GAME_AFK=v if v then killGameAFK() end end })
 
 SetTab:CreateSection("Debug système du jeu")
+local function argToStr(a)
+    local t = typeof(a)
+    if t=="Instance" then return "Instance "..a.ClassName.." -> "..a:GetFullName()
+    elseif t=="table" then local n=0 for _ in pairs(a) do n=n+1 end return "table("..n.." clés)"
+    else return t.." "..tostring(a) end
+end
+SetTab:CreateButton({ Name="🕵️ Spy OreHit (puis mine 1x à la main)", Callback=function()
+    if _env.TINOUHUB_SPY then Rayfield:Notify({Title="Spy",Content="Déjà actif — mine un ore",Duration=4}) return end
+    local installed = pcall(function()
+        local hook
+        local function handler(self, ...)
+            local ok2, m = pcall(getnamecallmethod)
+            if ok2 and active() and (m=="FireServer") and self and self.Name=="OreHit" then
+                local args, parts = {...}, {}
+                for i=1,select("#",...) do parts[i]=i..") "..argToStr(args[i]) end
+                local dump="OreHit:FireServer(\n  "..table.concat(parts,"\n  ").."\n)"
+                print(dump) pcall(function() setclipboard(dump) end)
+                pcall(function() Rayfield:Notify({Title="Spy",Content="OreHit capturé! copié (F9)",Duration=8}) end)
+            end
+            return hook(self, ...)
+        end
+        if type(hookmetamethod)=="function" then
+            hook = hookmetamethod(game, "__namecall", handler)
+        else
+            local mt = getrawmetatable(game)
+            setreadonly(mt, false)
+            hook = mt.__namecall
+            mt.__namecall = newcclosure(handler)
+        end
+        _env.TINOUHUB_SPY = true
+    end)
+    Rayfield:Notify({Title="Spy", Content=installed and "Spy ON — mine un ore à la main" or "Hook non supporté par ton exécuteur", Duration=6})
+end })
 SetTab:CreateButton({ Name="📡 Dump remotes + scripts AFK", Callback=function()
     local lines = {}
     -- 1) tous les remotes (events/functions) du jeu
