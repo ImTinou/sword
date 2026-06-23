@@ -218,31 +218,6 @@ MineTab:CreateButton({ Name="Exchange ALL", Callback=function() Fire("ExchangeAl
 MineTab:CreateToggle({ Name="Auto-Exchange (5s)", CurrentValue=false, Flag="AutoExch",
     Callback=function(v) AUTO_EXCH=v if v then task.spawn(function() while AUTO_EXCH do Fire("ExchangeAllMinerals") task.wait(5) end end) end end })
 
-MineTab:CreateSection("Upgrades Mine (Gem)")
--- ids réels du jeu, monnaie = Gem
-local MINE_UPG = {"StrongerPickaxes","MoreOreStats","MoreGems"}
-local upgEnabled = {}
-for _, u in ipairs(MINE_UPG) do
-    local id = u
-    MineTab:CreateToggle({ Name=u, CurrentValue=false, Flag="MUpg_"..u, Callback=function(v) upgEnabled[id]=v end })
-end
-local function buyMineUpg(id)
-    Fire("UpgradeUpgradeMax", "Gem", id)
-    Fire("UpgradeUpgrade", "Gem", id)
-end
-MineTab:CreateButton({ Name="Upgrade les cochés (max)", Callback=function()
-    local n=0 for id,on in pairs(upgEnabled) do if on then buyMineUpg(id) n=n+1 end end
-    Rayfield:Notify({Title="Upgrade",Content=n.." upgrades (Gem)",Duration=2})
-end })
-local autoUpg=false
-MineTab:CreateToggle({ Name="Auto-Upgrade (spam les cochés)", CurrentValue=false, Flag="AutoMUpg",
-    Callback=function(v) autoUpg=v if v then task.spawn(function()
-        while autoUpg do
-            for id,on in pairs(upgEnabled) do if on then buyMineUpg(id) end end
-            task.wait(1)
-        end
-    end) end end })
-
 -- ═══════════════════ SETTINGS ═══════════════════════════════════════════════
 local SetTab = Window:CreateTab("Settings", "settings")
 SetTab:CreateButton({ Name="🔄 Reload script", Callback=function()
