@@ -7,7 +7,7 @@ local UIS        = game:GetService("UserInputService")
 local HS         = game:GetService("HttpService")
 local VU         = game:GetService("VirtualUser")
 
-local VERSION   = "0.3.0"
+local VERSION   = "0.3.1"
 local SAVE_FILE = "tinouhub_noob_config.json"
 
 -- ════════════════════════ MainRemote ════════════════════════════════════════
@@ -451,17 +451,27 @@ local cmdName,cmdArg="",""
 SetTab:CreateInput({ Name="Commande", PlaceholderText="ex: Prestige", RemoveTextAfterFocusLost=false, Flag="CN", Callback=function(v) cmdName=v end })
 SetTab:CreateInput({ Name="Argument", PlaceholderText="optionnel", RemoveTextAfterFocusLost=false, Flag="CA", Callback=function(v) cmdArg=v end })
 SetTab:CreateButton({ Name="Fire", Callback=function() if cmdName=="" then return end if cmdArg~="" then Fire(cmdName,cmdArg) else Fire(cmdName) end end })
-SetTab:CreateSection("Spy MainRemote")
+SetTab:CreateSection("Spy remotes (universel)")
 local spyOn=false
-SetTab:CreateToggle({ Name="Spy ON (console F9)", CurrentValue=false, Flag="Spy", Callback=function(v) spyOn=v end })
+SetTab:CreateToggle({ Name="Spy ON (console F9) — log TOUS les remotes", CurrentValue=false, Flag="Spy", Callback=function(v) spyOn=v if v then warn("[SPY] ON — clique un upgrade en jeu") end end })
 if type(hookmetamethod)=="function" and type(getnamecallmethod)=="function" then
     local old old=hookmetamethod(game,"__namecall",function(self,...)
-        if spyOn and self==MainRemote and getnamecallmethod()=="FireServer" then
-            local a={...} local p={} for i,v in ipairs(a) do p[i]=tostring(v) end
-            warn("[SPY] MainRemote:FireServer("..table.concat(p,", ")..")")
+        if spyOn then
+            local m=getnamecallmethod()
+            if m=="FireServer" or m=="InvokeServer" then
+                local okR,isR = pcall(function() return self:IsA("RemoteEvent") or self:IsA("RemoteFunction") or self:IsA("UnreliableRemoteEvent") end)
+                if okR and isR then
+                    local a={...} local p={}
+                    for i,v in ipairs(a) do p[i]=tostring(v) end
+                    local nm = "?" pcall(function() nm=self.Name end)
+                    warn("[SPY] "..nm..":"..m.."("..table.concat(p,", ")..")")
+                end
+            end
         end
         return old(self,...)
     end)
+else
+    SetTab:CreateLabel("hookmetamethod indispo sur cet executor")
 end
 SetTab:CreateSection("Webhook")
 local function whS() return WEBHOOK_URL=="" and "Not configured" or "..."..WEBHOOK_URL:sub(-18) end
