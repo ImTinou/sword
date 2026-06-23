@@ -8,7 +8,7 @@ local UIS        = game:GetService("UserInputService")
 local RunS       = game:GetService("RunService")
 local TPS        = game:GetService("TeleportService")
 
-local VERSION   = "1.3.2"
+local VERSION   = "1.4.0"
 local SAVE_FILE = "tinouhub_noob_config.json"
 
 -- ════════════════════════ Session ═══════════════════════════════════════════
@@ -18,6 +18,28 @@ local _env = (type(getgenv) == "function") and getgenv() or _G
 local SESSION = {}
 _env.TINOUHUB_SESSION = SESSION
 local function active() return _env.TINOUHUB_SESSION == SESSION end
+
+-- ════════════════════════ Discord (webhook) ═════════════════════════════════
+local WEBHOOK, DISCORD_ON = "", false
+local function httpRequest(opts)
+    local req = (syn and syn.request) or (http and http.request) or http_request or request
+    if type(req) ~= "function" then return nil end
+    return (select(2, pcall(req, opts)))
+end
+local function discordLog(title, desc, color)
+    if not DISCORD_ON or WEBHOOK == "" then return end
+    task.spawn(function()
+        pcall(function()
+            local body = HS:JSONEncode({
+                username = "TinouHub",
+                embeds = {{ title = title, description = desc, color = color or 5814783,
+                    footer = { text = "TinouHub v"..VERSION.." • "..player.Name } }}
+            })
+            httpRequest({ Url = WEBHOOK, Method = "POST",
+                Headers = { ["Content-Type"] = "application/json" }, Body = body })
+        end)
+    end)
+end
 
 -- ════════════════════════ MainRemote ════════════════════════════════════════
 local MainRemote = nil
@@ -221,7 +243,7 @@ local mineStatusLbl
 -- ════════════════════════════════════════════════════════════════════════════
 local Window = Rayfield:CreateWindow({
     Name="TinouHub | Noob Incremental", LoadingTitle="TinouHub v"..VERSION, LoadingSubtitle="Mining",
-    ConfigurationSaving={Enabled=false},
+    ConfigurationSaving={Enabled=true, FolderName="TinouHub", FileName="NoobIncremental"},
     KeySystem=true, KeySettings={Title="TinouHub", Subtitle="Key System", Note="Ask ImTinou for your key",
         FileName="TinouHubKey", SaveKey=true, GrabKeyFromSite=false, Key={"tinoukey1","tinoukey2","tinoukey3"}},
 })
@@ -274,6 +296,7 @@ MineTab:CreateSlider({ Name="Vitesse TP (s)", Range={0.1,2}, Increment=0.05, Cur
 MineTab:CreateToggle({ Name="Auto-Mine (reste sur l'ore jusqu'à le casser)", CurrentValue=false, Flag="AutoMine",
     Callback=function(v)
         AUTO_MINE=v
+        discordLog(v and "⛏️ Auto-Mine ON" or "⏹️ Auto-Mine OFF", "Total cassés: **"..totalMined.."**", v and 3066993 or 15158332)
         if v then task.spawn(function()
             while AUTO_MINE and active() do
                 local ore = nearestAliveOre()
@@ -451,8 +474,25 @@ SetTab:CreateButton({ Name="📡 Dump remotes + scripts AFK", Callback=function(
     Rayfield:Notify({Title="Debug", Content=#lines.." lignes — copié + console (F9)", Duration=5})
 end })
 
+SetTab:CreateSection("Logs Discord")
+SetTab:CreateInput({ Name="Webhook URL", CurrentValue=WEBHOOK, PlaceholderText="https://discord.com/api/webhooks/...",
+    RemoveTextAfterFocusLost=false, Flag="Webhook", Callback=function(t) WEBHOOK = t or "" end })
+SetTab:CreateToggle({ Name="Activer les logs Discord", CurrentValue=false, Flag="DiscordOn",
+    Callback=function(v) DISCORD_ON=v if v then discordLog("✅ Logs activés", "Sur **"..player.Name.."**", 5763719) end end })
+SetTab:CreateButton({ Name="📨 Test webhook", Callback=function()
+    if WEBHOOK=="" then Rayfield:Notify({Title="Discord",Content="Mets d'abord l'URL du webhook",Duration=4}) return end
+    local saved=DISCORD_ON DISCORD_ON=true
+    discordLog("📨 Test webhook", "Si tu lis ça, le webhook marche ✅", 16776960)
+    DISCORD_ON=saved
+    Rayfield:Notify({Title="Discord",Content="Test envoyé (check ton salon)",Duration=3})
+end })
+
 SetTab:CreateSection("Info")
 SetTab:CreateLabel("TinouHub v"..VERSION.." | Noob Incremental")
 SetTab:CreateLabel("Ores:"..#ORES_LIST.." Pioches:"..#PICKAXES)
+
+-- recharge les valeurs sauvées (sliders, toggles, dropdowns, webhook...)
+pcall(function() Rayfield:LoadConfiguration() end)
+task.delay(1, function() discordLog("🟢 Script lancé", "**"..player.Name.."** a chargé TinouHub", 5763719) end)
 
 Rayfield:Notify({Title="TinouHub", Content="Mining v"..VERSION.." chargé!", Duration=4})
