@@ -407,6 +407,45 @@ BugTab:CreateSection("⚠️ Probes — teste, regarde si la monnaie/items monte
 BugTab:CreateLabel("Ces boutons tentent des trucs anormaux.")
 BugTab:CreateLabel("Serveur bien codé = rien. Mal codé = exploit. Observe tes stats.")
 
+-- ── Cmdr direct-exec (LE gros test) ─────────────────────────────────────────
+-- Le jeu a des commandes admin Cmdr (addCurrency, setPrestige, giveAura...).
+-- On envoie la commande DIRECTEMENT au remote serveur (bypass des hooks client).
+-- Si le check de permission est server-side => "permission" (bloqué).
+-- Si le dev l'a mal enregistré => ça s'exécute = INFINITE everything.
+BugTab:CreateSection("🎯 Cmdr exploit (envoi direct au serveur)")
+local cmdrFunc = nil
+pcall(function() cmdrFunc = RS:FindFirstChild("CmdrFunction", true) end)
+local cmdrRespLbl = BugTab:CreateLabel("Réponse serveur: (lance un test)")
+local function cmdrRun(text)
+    if not cmdrFunc then cmdrFunc = RS:FindFirstChild("CmdrFunction", true) end
+    if not cmdrFunc then pcall(function() cmdrRespLbl:Set("CmdrFunction introuvable") end) return end
+    local ok, resp = pcall(function() return cmdrFunc:InvokeServer(text, {}) end)
+    local out = ok and tostring(resp) or ("err: "..tostring(resp))
+    if out == "" or out == "nil" then out = "(vide → surement EXÉCUTÉ ✓✓)" end
+    print("[CMDR] '"..text.."' -> "..out)
+    pcall(function() cmdrRespLbl:Set("Serveur: "..out:sub(1,95)) end)
+    Rayfield:Notify({Title="Cmdr", Content=out:sub(1,120), Duration=5})
+end
+local cmCur, cmAmt = "Coins", "1e30"
+BugTab:CreateInput({ Name="Currency", PlaceholderText="Coins / Gems / Cash / Bread / Diamond...", RemoveTextAfterFocusLost=false, Flag="CmCur",
+    Callback=function(v) if v~="" then cmCur=v end end })
+BugTab:CreateInput({ Name="Montant (supporte 1e30)", PlaceholderText="1e30", RemoveTextAfterFocusLost=false, Flag="CmAmt",
+    Callback=function(v) if v~="" then cmAmt=v end end })
+BugTab:CreateButton({ Name="addCurrency me <cur> <montant>", Callback=function()
+    cmdrRun("addCurrency me "..cmCur.." "..cmAmt)
+end })
+BugTab:CreateButton({ Name="setPrestige me 10", Callback=function() cmdrRun("setPrestige me 10") end })
+BugTab:CreateButton({ Name="addMineral me Titanium 1e15", Callback=function() cmdrRun("addMineral me Titanium 1e15") end })
+BugTab:CreateButton({ Name="giveAura me CosmicAura", Callback=function() cmdrRun("giveAura me CosmicAura") end })
+BugTab:CreateButton({ Name="addRuneCount me Legendary 1e6", Callback=function() cmdrRun("addRuneCount me Legendary 1000000") end })
+BugTab:CreateButton({ Name="timeWarp me 999999", Callback=function() cmdrRun("timeWarp me 999999") end })
+local cmFree = ""
+BugTab:CreateInput({ Name="Commande Cmdr libre", PlaceholderText="ex: addCurrency me Gems 1e20", RemoveTextAfterFocusLost=false, Flag="CmFree",
+    Callback=function(v) cmFree=v end })
+BugTab:CreateButton({ Name="Lancer la commande libre", Callback=function()
+    if cmFree~="" then cmdrRun(cmFree) end
+end })
+
 BugTab:CreateButton({ Name="Spam RollAura Golden x25 (gratuit?)", Callback=function()
     task.spawn(function() for i=1,25 do Fire("RollAura","Golden") task.wait(0.1) end end)
     Rayfield:Notify({Title="Test", Content="25 golden rolls envoyés", Duration=3})
