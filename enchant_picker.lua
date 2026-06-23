@@ -1025,6 +1025,11 @@ end
 local SettingsTab = Window:CreateTab("Settings", "settings")
 
 SettingsTab:CreateSection("General")
+SettingsTab:CreateButton({ Name="🔄 Reload script", Callback=function()
+    pcall(function() Rayfield:Destroy() end)
+    task.wait(0.2)
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/ImTinou/sword/main/enchant_picker.lua?v="..tostring(os.time())))()
+end })
 SettingsTab:CreateToggle({ Name="Anti-AFK", CurrentValue=ANTI_AFK, Flag="AntiAFK", Callback=function(v) ANTI_AFK=v saveConfig() end })
 
 SettingsTab:CreateSection("Actions")

@@ -445,6 +445,11 @@ PlayerTab:CreateToggle({ Name="Fly (WASD+Space/Ctrl)", CurrentValue=false, Flag=
 
 -- ═══════════════════ SETTINGS ═══════════════════════════════════════════════
 local SetTab = Window:CreateTab("Settings", "settings")
+SetTab:CreateButton({ Name="🔄 Reload script", Callback=function()
+    pcall(function() Rayfield:Destroy() end)
+    task.wait(0.2)
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/ImTinou/sword/main/noob_incremental.lua?v="..tostring(os.time())))()
+end })
 SetTab:CreateToggle({ Name="Anti-AFK", CurrentValue=ANTI_AFK, Flag="AFK", Callback=function(v) ANTI_AFK=v saveConfig() end })
 SetTab:CreateSection("Command Runner (MainRemote)")
 local cmdName,cmdArg="",""

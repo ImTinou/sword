@@ -441,6 +441,12 @@ PlayerTab:CreateToggle({ Name="Fly (WASD + Space/Ctrl)", CurrentValue=false, Fla
 -- ═══════════════════════ SETTINGS ═══════════════════════════════════════════
 local SettingsTab = Window:CreateTab("Settings", "settings")
 
+SettingsTab:CreateButton({ Name="🔄 Reload script", Callback=function()
+    pcall(function() Rayfield:Destroy() end)
+    task.wait(0.2)
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/ImTinou/sword/main/sell_lemons.lua?v="..tostring(os.time())))()
+end })
+
 SettingsTab:CreateSection("Anti-AFK")
 SettingsTab:CreateToggle({ Name="Anti-AFK", CurrentValue=ANTI_AFK, Flag="AntiAFK",
     Callback=function(v) ANTI_AFK=v saveConfig() end })
