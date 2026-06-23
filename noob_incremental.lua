@@ -315,36 +315,41 @@ end })
 local UpgTab = Window:CreateTab("Upgrades", "trending-up")
 -- BuyUITreeNode(node) = achète un niveau d'un node d'upgrade (gem tree, etc.)
 local UPG_GROUPS = {
-    ["Mine (gem)"]   = {"MoreGems","StrongerPickaxes","MoreOreStats"},
-    ["Bois / Glace"] = {"MoreWood","MorePlanks","MoreIce","BiggerWoodDeposit","FasterWoodConversion","MorePlanksFromWood"},
-    ["Blé"]          = {"MoreWheat","BiggerWheatDeposit","MoreConsumption","FasterWheatConversion"},
-    ["Oof"]          = {"MoreOof","FasterOof","MoreOofBonus","MoreMoreMoreOofs","MoreOofs"},
-    ["Runes"]        = {"MoreRuneLuck","MoreRuneSpeed","MoreRuneBulk"},
-    ["Divers"]       = {"MoreCash","MoreWalkSpeed","MoreTierLuck","MoreMutationLuck","FasterDropper","StrongerDropper"},
+    {name="Mine (Gem)",   cur="Gem",    nodes={"MoreGems","StrongerPickaxes","MoreOreStats"}},
+    {name="Bois / Glace", cur="Planks", nodes={"MoreWood","MorePlanks","MoreIce","BiggerWoodDeposit","FasterWoodConversion","MorePlanksFromWood"}},
+    {name="Blé",          cur="Bread",  nodes={"MoreWheat","BiggerWheatDeposit","MoreConsumption","FasterWheatConversion"}},
+    {name="Oof",          cur="Oof",    nodes={"MoreOof","FasterOof","MoreOofBonus","MoreMoreMoreOofs","MoreOofs"}},
+    {name="Runes",        cur="Prism",  nodes={"MoreRuneLuck","MoreRuneSpeed","MoreRuneBulk"}},
 }
-local upgState = {}
-local function buyNode(node)
-    Fire("BuyUITreeNode", node)        -- gem/main tree
-    Fire("BuyLabUITreeNode", node)     -- lab tree (au cas où)
+local upgState = {}  -- [node] = { on=bool, cur=currency }
+-- On essaie les 2 systèmes: UpgradeUpgrade(currency, id) ET BuyUITreeNode(id)
+local function buyNode(node, cur)
+    Fire("UpgradeUpgradeMax", cur, node)
+    Fire("UpgradeUpgrade", cur, node)
+    Fire("BuyUITreeNode", node)
+    Fire("BuyLabUITreeNode", node)
 end
-for groupName, nodes in pairs(UPG_GROUPS) do
-    UpgTab:CreateSection(groupName)
-    for _, node in ipairs(nodes) do
-        local nd = node
-        UpgTab:CreateToggle({ Name=node, CurrentValue=false, Flag="Upg_"..node, Callback=function(v) upgState[nd]=v end })
+for _, g in ipairs(UPG_GROUPS) do
+    UpgTab:CreateSection(g.name)
+    for _, node in ipairs(g.nodes) do
+        local nd, cur = node, g.cur
+        UpgTab:CreateToggle({ Name=node, CurrentValue=false, Flag="Upg_"..node,
+            Callback=function(v) upgState[nd]={on=v, cur=cur} end })
     end
 end
 UpgTab:CreateSection("Control")
+UpgTab:CreateLabel("Si rien ne bouge: Spy 1 clic en jeu (Settings) pour")
+UpgTab:CreateLabel("voir la vraie commande + ID, et dis-le moi.")
 local upgLbl = UpgTab:CreateLabel("Auto-Upgrade: Idle")
 UpgTab:CreateButton({ Name="Acheter les cochés 1x", Callback=function()
-    local n=0 for node,on in pairs(upgState) do if on then buyNode(node) n=n+1 end end
-    Rayfield:Notify({Title="Upgrade",Content=n.." nodes achetés",Duration=2})
+    local n=0 for node,s in pairs(upgState) do if s.on then buyNode(node, s.cur) n=n+1 end end
+    Rayfield:Notify({Title="Upgrade",Content=n.." nodes (essai multi-commande)",Duration=2})
 end })
 local autoUpg=false
 UpgTab:CreateToggle({ Name="Auto-Upgrade (spam les cochés)", CurrentValue=false, Flag="AutoUpg",
     Callback=function(v) autoUpg=v if v then task.spawn(function()
         while autoUpg do
-            local n=0 for node,on in pairs(upgState) do if on then buyNode(node) n=n+1 end end
+            local n=0 for node,s in pairs(upgState) do if s.on then buyNode(node, s.cur) n=n+1 end end
             pcall(function() upgLbl:Set("Auto-Upgrade: "..n.." nodes...") end)
             task.wait(0.5)
         end
