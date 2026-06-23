@@ -7,7 +7,7 @@ local UIS        = game:GetService("UserInputService")
 local HS         = game:GetService("HttpService")
 local VU         = game:GetService("VirtualUser")
 
-local VERSION   = "0.3.1"
+local VERSION   = "0.3.2"
 local SAVE_FILE = "tinouhub_noob_config.json"
 
 -- ════════════════════════ MainRemote ════════════════════════════════════════
@@ -451,27 +451,63 @@ local cmdName,cmdArg="",""
 SetTab:CreateInput({ Name="Commande", PlaceholderText="ex: Prestige", RemoveTextAfterFocusLost=false, Flag="CN", Callback=function(v) cmdName=v end })
 SetTab:CreateInput({ Name="Argument", PlaceholderText="optionnel", RemoveTextAfterFocusLost=false, Flag="CA", Callback=function(v) cmdArg=v end })
 SetTab:CreateButton({ Name="Fire", Callback=function() if cmdName=="" then return end if cmdArg~="" then Fire(cmdName,cmdArg) else Fire(cmdName) end end })
-SetTab:CreateSection("Spy remotes (universel)")
+SetTab:CreateSection("Spy remotes (s'affiche ICI, pas besoin de F9)")
 local spyOn=false
-SetTab:CreateToggle({ Name="Spy ON (console F9) — log TOUS les remotes", CurrentValue=false, Flag="Spy", Callback=function(v) spyOn=v if v then warn("[SPY] ON — clique un upgrade en jeu") end end })
+local spyLog = {}
+local spyLbl
+local function logSpy(line)
+    table.insert(spyLog, 1, line)
+    while #spyLog > 8 do table.remove(spyLog) end
+    pcall(function() spyLbl:Set(table.concat(spyLog, "\n")) end)
+    pcall(function() print("[SPY] "..line) end)
+    pcall(function() warn("[SPY] "..line) end)
+end
+SetTab:CreateToggle({ Name="Spy ON — log tous les remotes ici", CurrentValue=false, Flag="Spy",
+    Callback=function(v) spyOn=v if v then logSpy("ON — clique un upgrade en jeu") end end })
+spyLbl = SetTab:CreateLabel("(spy off)")
+SetTab:CreateButton({ Name="Clear spy", Callback=function() spyLog={} pcall(function() spyLbl:Set("(vidé)") end) end })
+
+local function spyHandle(self, method, ...)
+    if not spyOn then return end
+    if method ~= "FireServer" and method ~= "InvokeServer" then return end
+    local okR,isR = pcall(function() return self:IsA("RemoteEvent") or self:IsA("RemoteFunction") or self:IsA("UnreliableRemoteEvent") end)
+    if not (okR and isR) then return end
+    local a={...} local p={}
+    for i,v in ipairs(a) do p[i]=tostring(v) end
+    local nm="?" pcall(function() nm=self.Name end)
+    logSpy(nm..":"..method.."("..table.concat(p,", ")..")")
+end
+
+-- Hook 1: __namecall (appels self:FireServer(...))
 if type(hookmetamethod)=="function" and type(getnamecallmethod)=="function" then
     local old old=hookmetamethod(game,"__namecall",function(self,...)
-        if spyOn then
-            local m=getnamecallmethod()
-            if m=="FireServer" or m=="InvokeServer" then
-                local okR,isR = pcall(function() return self:IsA("RemoteEvent") or self:IsA("RemoteFunction") or self:IsA("UnreliableRemoteEvent") end)
-                if okR and isR then
-                    local a={...} local p={}
-                    for i,v in ipairs(a) do p[i]=tostring(v) end
-                    local nm = "?" pcall(function() nm=self.Name end)
-                    warn("[SPY] "..nm..":"..m.."("..table.concat(p,", ")..")")
-                end
-            end
-        end
+        local ok,m = pcall(getnamecallmethod)
+        if ok then pcall(spyHandle, self, m, ...) end
         return old(self,...)
     end)
-else
-    SetTab:CreateLabel("hookmetamethod indispo sur cet executor")
+end
+-- Hook 2: hookfunction sur FireServer/InvokeServer (attrape les réfs cachées)
+if type(hookfunction)=="function" then
+    pcall(function()
+        local re = Instance.new("RemoteEvent")
+        local realFS = re.FireServer
+        local hookedFS
+        hookedFS = hookfunction(realFS, function(self, ...)
+            pcall(spyHandle, self, "FireServer", ...)
+            return hookedFS(self, ...)
+        end)
+        re:Destroy()
+    end)
+    pcall(function()
+        local rf = Instance.new("RemoteFunction")
+        local realIS = rf.InvokeServer
+        local hookedIS
+        hookedIS = hookfunction(realIS, function(self, ...)
+            pcall(spyHandle, self, "InvokeServer", ...)
+            return hookedIS(self, ...)
+        end)
+        rf:Destroy()
+    end)
 end
 SetTab:CreateSection("Webhook")
 local function whS() return WEBHOOK_URL=="" and "Not configured" or "..."..WEBHOOK_URL:sub(-18) end
