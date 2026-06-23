@@ -7,7 +7,7 @@ local UIS        = game:GetService("UserInputService")
 local HS         = game:GetService("HttpService")
 local VU         = game:GetService("VirtualUser")
 
-local VERSION   = "0.3.2"
+local VERSION   = "0.4.0"
 local SAVE_FILE = "tinouhub_noob_config.json"
 
 -- ════════════════════════ MainRemote ════════════════════════════════════════
@@ -398,19 +398,38 @@ BugTab:CreateButton({ Name="TycoonDropSell x20 (dupe?)", Callback=function() if 
 -- 1) Active le Spy (Settings), clique un upgrade en jeu, note l'ID affiché:
 --    "UpgradeUpgrade(<currency>, <ID>)"
 -- 2) Mets l'ID ici + une monnaie que t'as à gogo, et test.
-BugTab:CreateSection("🎯 Currency-Swap UpgradeUpgrade")
-BugTab:CreateLabel("Spy un upgrade (Settings) pour avoir currency+ID")
+BugTab:CreateSection("🎯 Currency-Swap (ids extraits du jeu)")
+BugTab:CreateLabel("Ces upgrades coûtent des GEM. On essaie de payer en OOF.")
+BugTab:CreateLabel("Si le niveau monte sans perdre de Gem = EXPLOIT.")
+-- ids réels extraits du rbxlx (upgrades qui coûtent des Gem)
+local GEM_UPGRADES = {"StrongerPickaxes","MoreOreStats","MoreGems"}
+local swapCur = "Oof"
+BugTab:CreateInput({ Name="Monnaie à utiliser", PlaceholderText="Oof", RemoveTextAfterFocusLost=false, Flag="SWC", Callback=function(v) if v~="" then swapCur=v end end })
+for _, up in ipairs(GEM_UPGRADES) do
+    local id = up
+    BugTab:CreateButton({ Name="Swap: "..id.." (payer en "..swapCur..")", Callback=function()
+        Fire("UpgradeUpgradeMax", swapCur, id)
+        Fire("UpgradeUpgrade", swapCur, id)
+        Rayfield:Notify({Title="Swap",Content=swapCur.." -> "..id.." (regarde si ça up)",Duration=4})
+    end })
+end
+BugTab:CreateButton({ Name="💥 Swap ALL gem upgrades en boucle x15", Callback=function()
+    task.spawn(function()
+        for i=1,15 do
+            for _, id in ipairs(GEM_UPGRADES) do Fire("UpgradeUpgradeMax", swapCur, id) end
+            task.wait(0.1)
+        end
+        Rayfield:Notify({Title="Swap",Content="Spam fini — check tes upgrades",Duration=3})
+    end)
+end })
+-- id/monnaie manuel
 local swCur, swId = "Oof", ""
-BugTab:CreateInput({ Name="Monnaie à utiliser (que t'as bcp)", PlaceholderText="Oof", RemoveTextAfterFocusLost=false, Flag="SWC", Callback=function(v) if v~="" then swCur=v end end })
-BugTab:CreateInput({ Name="Upgrade ID (via spy)", PlaceholderText="ex: MoreOreStats / un id", RemoveTextAfterFocusLost=false, Flag="SWI", Callback=function(v) swId=v end })
-BugTab:CreateButton({ Name="UpgradeUpgradeMax(monnaie, id)", Callback=function()
-    if swId=="" then Rayfield:Notify({Title="Swap",Content="Mets l'ID (spy d'abord)",Duration=3}) return end
+BugTab:CreateInput({ Name="(manuel) Monnaie", PlaceholderText="Oof", RemoveTextAfterFocusLost=false, Flag="SWC2", Callback=function(v) if v~="" then swCur=v end end })
+BugTab:CreateInput({ Name="(manuel) Upgrade ID", PlaceholderText="ex: MoreOof", RemoveTextAfterFocusLost=false, Flag="SWI", Callback=function(v) swId=v end })
+BugTab:CreateButton({ Name="(manuel) UpgradeUpgradeMax(monnaie, id)", Callback=function()
+    if swId=="" then return end
     Fire("UpgradeUpgradeMax", swCur, swId)
     Rayfield:Notify({Title="Swap",Content=swCur.." -> "..swId,Duration=3})
-end })
-BugTab:CreateButton({ Name="UpgradeUpgrade x25 (spam)", Callback=function()
-    if swId=="" then return end
-    task.spawn(function() for i=1,25 do Fire("UpgradeUpgrade", swCur, swId) task.wait(0.08) end end)
 end })
 
 -- ═══════════════════ PLAYER ═════════════════════════════════════════════════
