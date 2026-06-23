@@ -5,7 +5,7 @@ local RS         = game:GetService("ReplicatedStorage")
 local HS         = game:GetService("HttpService")
 local VU         = game:GetService("VirtualUser")
 
-local VERSION   = "1.0.0"
+local VERSION   = "1.1.0"
 local SAVE_FILE = "tinouhub_noob_config.json"
 
 -- ════════════════════════ MainRemote ════════════════════════════════════════
@@ -46,8 +46,26 @@ end
 local SMF = {"Shared","Modules","FEATURES","_MINE"}
 local PICKAXES = extractNames(loadModule(SMF,"Pickaxes"),
     {"StonePickaxe","IronPickaxe","GoldPickaxe","TitaniumPickaxe","RubyPickaxe"})
-local ORES_LIST = extractNames(loadModule(SMF,"Ores"),
-    {"Copper","Iron","Silver","Gold","Ruby","Emerald","Diamond","Platinum","Titanium","Crystal","Obsidian","Celestium","Cosmic"})
+
+-- Dossier des ores du jeu: Workspace.__GAME_CONTENT.Ores (source de vérité)
+local function findOreFolder()
+    local f
+    pcall(function()
+        local gc = workspace:FindFirstChild("__GAME_CONTENT")
+        f = gc and gc:FindFirstChild("Ores")
+    end)
+    return f
+end
+local ORE_FALLBACK = {"Aetherite","Celestium","Coal","Cobalt","Copper","Gold","Infinity",
+    "Iron","Palladium","Platinum","Ruby","Silver","Titanium","Uranium","Voidsteel"}
+local function liveOreNames()
+    local f, out = findOreFolder(), {}
+    if f then for _, c in ipairs(f:GetChildren()) do if c:IsA("Model") then table.insert(out, c.Name) end end end
+    if #out == 0 then for _, n in ipairs(ORE_FALLBACK) do table.insert(out, n) end end
+    table.sort(out)
+    return out
+end
+local ORES_LIST = liveOreNames()
 
 -- ════════════════════════ Config ════════════════════════════════════════════
 local MINE_RATE = 0.35
@@ -113,16 +131,21 @@ local function isOreAlive(m)
     return true
 end
 
-local oreFolder = nil
+local oreFolder = findOreFolder()
 local function scanOres()
     local found = {}
-    local roots = oreFolder and {oreFolder} or {workspace}
-    for _, root in ipairs(roots) do
-        for _, m in ipairs(root:GetDescendants()) do
-            if m:IsA("Model") and oreNameSet[m.Name] and orePart(m) then
-                if not oreFolder and m.Parent then oreFolder = m.Parent end
-                table.insert(found, m)
-            end
+    -- priorité au dossier Ores du jeu; on prend chaque Model enfant
+    if oreFolder then
+        for _, m in ipairs(oreFolder:GetChildren()) do
+            if m:IsA("Model") and orePart(m) then table.insert(found, m) end
+        end
+        if #found > 0 then return found end
+    end
+    -- fallback: scan global par nom si le dossier n'est pas trouvé
+    for _, m in ipairs(workspace:GetDescendants()) do
+        if m:IsA("Model") and oreNameSet[m.Name] and orePart(m) then
+            if not oreFolder and m.Parent then oreFolder = m.Parent end
+            table.insert(found, m)
         end
     end
     return found
@@ -173,9 +196,9 @@ oreDropdown = MineTab:CreateDropdown({ Name="Ores (vide = tous)", Options=oreNam
     MultipleOptions=true, Flag="OreSel",
     Callback=function(opt) selectedOres={} if type(opt)=="table" then for _,o in ipairs(opt) do selectedOres[o]=true end end end })
 MineTab:CreateButton({ Name="↻ Rescanner les ores", Callback=function()
-    oreFolder=nil
+    oreFolder=findOreFolder()
     pcall(function() oreDropdown:Refresh(oreNamesPresent()) end)
-    Rayfield:Notify({Title="Mine", Content="Ores rescannés", Duration=2})
+    Rayfield:Notify({Title="Mine", Content="Ores rescannés ("..#oreNamesPresent().." types)", Duration=2})
 end })
 MineTab:CreateButton({ Name="🐛 Debug ores (copie les noms)", Callback=function()
     local h = hrp()
