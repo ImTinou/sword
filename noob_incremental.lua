@@ -4,9 +4,20 @@ local player     = game:GetService("Players").LocalPlayer
 local RS         = game:GetService("ReplicatedStorage")
 local HS         = game:GetService("HttpService")
 local VU         = game:GetService("VirtualUser")
+local UIS        = game:GetService("UserInputService")
+local RunS       = game:GetService("RunService")
+local TPS        = game:GetService("TeleportService")
 
-local VERSION   = "1.1.0"
+local VERSION   = "1.2.0"
 local SAVE_FILE = "tinouhub_noob_config.json"
+
+-- ════════════════════════ Session ═══════════════════════════════════════════
+-- À chaque (re)lancement, l'ancienne instance est invalidée: toutes ses boucles
+-- (auto-mine, auto-exchange, anti-afk) s'arrêtent net via active().
+local _env = (type(getgenv) == "function") and getgenv() or _G
+local SESSION = {}
+_env.TINOUHUB_SESSION = SESSION
+local function active() return _env.TINOUHUB_SESSION == SESSION end
 
 -- ════════════════════════ MainRemote ════════════════════════════════════════
 local MainRemote = nil
@@ -70,6 +81,7 @@ local ORES_LIST = liveOreNames()
 -- ════════════════════════ Config ════════════════════════════════════════════
 local MINE_RATE = 0.35
 local AUTO_MINE, AUTO_EXCH, ANTI_AFK = false, false, true
+local AUTO_PICK, AUTO_AWAKEN = false, false
 local selectedOres = {}
 local selectedPickaxe = PICKAXES[1] or "StonePickaxe"
 
@@ -99,16 +111,29 @@ local function pulseInput()
         VIM:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
     end))
 end
+-- nudge physique du perso: se réplique comme un vrai déplacement => bat les
+-- systèmes AFK custom qui surveillent le mouvement (pas seulement l'input)
+local function jitterMove()
+    local h = (player.Character and player.Character:FindFirstChild("HumanoidRootPart"))
+    if not h then return false end
+    return (pcall(function()
+        local cf = h.CFrame
+        h.CFrame = cf * CFrame.new(0, 0.4, 0)
+        task.wait(0.12)
+        if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then h.CFrame = cf end
+    end))
+end
 player.Idled:Connect(function()
-    if not ANTI_AFK then return end
+    if not active() or not ANTI_AFK then return end
     pulseInput()
     pcall(function() VU:CaptureController() VU:ClickButton2(Vector2.new()) end)
 end)
 task.spawn(function()
-    while true do task.wait(55)
-        if ANTI_AFK and not pulseInput() then
-            pcall(function() local cam=workspace.CurrentCamera
-                VU:Button2Down(cam.ViewportSize/2,cam.CFrame) task.wait(0.1) VU:Button2Up(cam.ViewportSize/2,cam.CFrame) end)
+    while active() do task.wait(40)
+        if active() and ANTI_AFK then
+            pulseInput()
+            -- bouge seulement si l'auto-mine ne le fait pas déjà
+            if not AUTO_MINE then jitterMove() end
         end
     end
 end)
@@ -236,11 +261,11 @@ MineTab:CreateToggle({ Name="Auto-Mine (reste sur l'ore jusqu'à le casser)", Cu
     Callback=function(v)
         AUTO_MINE=v
         if v then task.spawn(function()
-            while AUTO_MINE do
+            while AUTO_MINE and active() do
                 local ore = nearestAliveOre()
                 if ore then
                     -- reste sur CET ore tant qu'il est vivant et existe
-                    while AUTO_MINE and ore.Parent and isOreAlive(ore) do
+                    while AUTO_MINE and active() and ore.Parent and isOreAlive(ore) do
                         local h, p = hrp(), orePart(ore)
                         if h and p then h.CFrame = p.CFrame + Vector3.new(0,4,0) end
                         pcall(function() mineStatusLbl:Set("Mining "..ore.Name.." | cassés: "..totalMined) end)
@@ -262,20 +287,105 @@ MineTab:CreateDropdown({ Name="Pioche", Options=PICKAXES, CurrentOption=selected
 MineTab:CreateButton({ Name="Craft pioche", Callback=function() Fire("CraftPickaxe", selectedPickaxe) Rayfield:Notify({Title="Pioche",Content="Craft "..selectedPickaxe,Duration=2}) end })
 MineTab:CreateButton({ Name="Equip pioche", Callback=function() Fire("EquipPickaxe", selectedPickaxe) Rayfield:Notify({Title="Pioche",Content="Equip "..selectedPickaxe,Duration=2}) end })
 MineTab:CreateButton({ Name="Awaken Tier", Callback=function() Fire("AwakenTier") Rayfield:Notify({Title="Awaken",Content="Envoyé",Duration=2}) end })
+MineTab:CreateToggle({ Name="Auto-Craft + Equip pioche (3s)", CurrentValue=false, Flag="AutoPick",
+    Callback=function(v) AUTO_PICK=v if v then task.spawn(function()
+        while active() and AUTO_PICK do Fire("CraftPickaxe", selectedPickaxe) task.wait(0.2) Fire("EquipPickaxe", selectedPickaxe) task.wait(3) end
+    end) end end })
+MineTab:CreateToggle({ Name="Auto-Awaken Tier (3s)", CurrentValue=false, Flag="AutoAwaken",
+    Callback=function(v) AUTO_AWAKEN=v if v then task.spawn(function() while active() and AUTO_AWAKEN do Fire("AwakenTier") task.wait(3) end end) end end })
 
 MineTab:CreateSection("Exchange minéraux")
 MineTab:CreateButton({ Name="Exchange ALL", Callback=function() Fire("ExchangeAllMinerals") Rayfield:Notify({Title="Exchange",Content="Tout échangé",Duration=2}) end })
 MineTab:CreateToggle({ Name="Auto-Exchange (5s)", CurrentValue=false, Flag="AutoExch",
-    Callback=function(v) AUTO_EXCH=v if v then task.spawn(function() while AUTO_EXCH do Fire("ExchangeAllMinerals") task.wait(5) end end) end end })
+    Callback=function(v) AUTO_EXCH=v if v then task.spawn(function() while AUTO_EXCH and active() do Fire("ExchangeAllMinerals") task.wait(5) end end) end end })
+
+-- ═══════════════════ PLAYER ═════════════════════════════════════════════════
+local PlayerTab = Window:CreateTab("Player", "user")
+local function humanoid() local c=player.Character return c and c:FindFirstChildOfClass("Humanoid") end
+
+PlayerTab:CreateSection("Mouvement")
+local WALK_SPEED, JUMP_POWER = 16, 50
+PlayerTab:CreateSlider({ Name="WalkSpeed", Range={16,200}, Increment=2, CurrentValue=16, Flag="WalkSpd",
+    Callback=function(v) WALK_SPEED=v local h=humanoid() if h then h.WalkSpeed=v end end })
+PlayerTab:CreateSlider({ Name="JumpPower", Range={50,300}, Increment=5, CurrentValue=50, Flag="JumpPwr",
+    Callback=function(v) JUMP_POWER=v local h=humanoid() if h then h.UseJumpPower=true h.JumpPower=v end end })
+-- réapplique vitesse/saut à chaque respawn
+player.CharacterAdded:Connect(function()
+    task.wait(0.5)
+    local h=humanoid()
+    if h then if WALK_SPEED~=16 then h.WalkSpeed=WALK_SPEED end if JUMP_POWER~=50 then h.UseJumpPower=true h.JumpPower=JUMP_POWER end end
+end)
+
+local INF_JUMP=false
+PlayerTab:CreateToggle({ Name="Saut infini", CurrentValue=false, Flag="InfJump", Callback=function(v) INF_JUMP=v end })
+UIS.JumpRequest:Connect(function()
+    if active() and INF_JUMP then local h=humanoid() if h then h:ChangeState(Enum.HumanoidStateType.Jumping) end end
+end)
+
+local NOCLIP=false
+PlayerTab:CreateToggle({ Name="Noclip (traverse les murs)", CurrentValue=false, Flag="Noclip", Callback=function(v) NOCLIP=v end })
+RunS.Stepped:Connect(function()
+    if not active() or not NOCLIP then return end
+    local c=player.Character
+    if c then for _,p in ipairs(c:GetDescendants()) do if p:IsA("BasePart") and p.CanCollide then p.CanCollide=false end end end
+end)
+
+PlayerTab:CreateSection("Téléport")
+PlayerTab:CreateButton({ Name="↺ Reset perso (respawn)", Callback=function()
+    local h=humanoid() if h then h.Health=0 end
+end })
 
 -- ═══════════════════ SETTINGS ═══════════════════════════════════════════════
 local SetTab = Window:CreateTab("Settings", "settings")
+SetTab:CreateSection("Serveur")
+SetTab:CreateButton({ Name="🔁 Rejoin (même serveur)", Callback=function()
+    pcall(function() TPS:Teleport(game.PlaceId, player) end)
+end })
+SetTab:CreateButton({ Name="🔀 Server hop (nouveau serveur)", Callback=function()
+    pcall(function() TPS:Teleport(game.PlaceId) end)
+end })
 SetTab:CreateButton({ Name="🔄 Reload script", Callback=function()
+    -- coupe TOUT (auto-mine, auto-exchange, anti-afk) avant de recharger
+    AUTO_MINE, AUTO_EXCH, ANTI_AFK = false, false, false
+    AUTO_PICK, AUTO_AWAKEN = false, false
+    _env.TINOUHUB_SESSION = nil
     pcall(function() Rayfield:Destroy() end)
-    task.wait(0.2)
+    task.wait(0.3)
     loadstring(game:HttpGet("https://raw.githubusercontent.com/ImTinou/sword/main/noob_incremental.lua?v="..tostring(os.time())))()
 end })
 SetTab:CreateToggle({ Name="Anti-AFK", CurrentValue=ANTI_AFK, Flag="AFK", Callback=function(v) ANTI_AFK=v saveConfig() end })
+
+SetTab:CreateSection("Debug système du jeu")
+SetTab:CreateButton({ Name="📡 Dump remotes + scripts AFK", Callback=function()
+    local lines = {}
+    -- 1) tous les remotes (events/functions) du jeu
+    table.insert(lines, "=== REMOTES ===")
+    for _, svc in ipairs({RS, workspace, game:GetService("Players")}) do
+        pcall(function()
+            for _, d in ipairs(svc:GetDescendants()) do
+                if d:IsA("RemoteEvent") or d:IsA("RemoteFunction") or d:IsA("BindableEvent") then
+                    table.insert(lines, d.ClassName.." | "..d:GetFullName())
+                end
+            end
+        end)
+    end
+    -- 2) scripts/modules dont le nom évoque l'AFK/idle/kick/mine
+    table.insert(lines, "")
+    table.insert(lines, "=== SCRIPTS (afk/idle/kick/mine) ===")
+    for _, d in ipairs(game:GetDescendants()) do
+        if (d:IsA("LocalScript") or d:IsA("ModuleScript") or d:IsA("Script")) then
+            local n = string.lower(d.Name)
+            if n:find("afk") or n:find("idle") or n:find("kick") or n:find("mine") or n:find("antiafk") then
+                table.insert(lines, d.ClassName.." | "..d:GetFullName())
+            end
+        end
+    end
+    local dump = table.concat(lines, "\n")
+    print(dump)
+    pcall(function() setclipboard(dump) end)
+    Rayfield:Notify({Title="Debug", Content=#lines.." lignes — copié + console (F9)", Duration=5})
+end })
+
 SetTab:CreateSection("Info")
 SetTab:CreateLabel("TinouHub v"..VERSION.." | Noob Incremental")
 SetTab:CreateLabel("Ores:"..#ORES_LIST.." Pioches:"..#PICKAXES)
