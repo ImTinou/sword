@@ -310,7 +310,13 @@ CapTab:CreateButton({ Name="Ouvrir 1 capsule", Callback=function()
     Fire("OpenCapsule", selectedCapsule) capCount=capCount+1
     pcall(function() capLbl:Set("Capsules ouvertes: "..capCount) end)
 end })
+-- Le nb par ouverture (6) est gamepass/upgrade côté serveur → pas modifiable.
+-- Seul levier client = la VITESSE de spam. Si le serveur n'a pas de cooldown,
+-- spammer très vite = ouverture quasi illimitée.
+local CAP_RATE = 0.2
 local autoCap = false
+CapTab:CreateSlider({ Name="Vitesse spam (s) — baisse pour +", Range={0.03,1}, Increment=0.01, CurrentValue=0.2, Flag="CapRate",
+    Callback=function(v) CAP_RATE=v end })
 CapTab:CreateToggle({ Name="Auto-Open Capsules (spam)", CurrentValue=false, Flag="AutoCap",
     Callback=function(v)
         autoCap=v
@@ -319,10 +325,21 @@ CapTab:CreateToggle({ Name="Auto-Open Capsules (spam)", CurrentValue=false, Flag
                 Fire("OpenCapsule", selectedCapsule)
                 capCount=capCount+1
                 pcall(function() capLbl:Set("Capsules ouvertes: "..capCount) end)
-                task.wait(0.5)
+                task.wait(CAP_RATE)
             end
         end) end
     end })
+CapTab:CreateButton({ Name="💥 Burst x50 (spam instantané)", Callback=function()
+    task.spawn(function()
+        for i=1,50 do
+            Fire("OpenCapsule", selectedCapsule)
+            capCount=capCount+1
+            if i%10==0 then pcall(function() capLbl:Set("Capsules ouvertes: "..capCount) end) task.wait() end
+        end
+        pcall(function() capLbl:Set("Capsules ouvertes: "..capCount) end)
+        Rayfield:Notify({Title="Burst", Content="50 ouvertures envoyées", Duration=2})
+    end)
+end })
 CapTab:CreateButton({ Name="Toggle Minion Auto-Open (in-game)", Callback=function()
     Fire("ToggleMinionAutoOpen") Rayfield:Notify({Title="Minions", Content="Auto-open togglé", Duration=2})
 end })
