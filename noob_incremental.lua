@@ -8,7 +8,7 @@ local UIS        = game:GetService("UserInputService")
 local RunS       = game:GetService("RunService")
 local TPS        = game:GetService("TeleportService")
 
-local VERSION   = "1.3.0"
+local VERSION   = "1.3.1"
 local SAVE_FILE = "tinouhub_noob_config.json"
 
 -- ════════════════════════ Session ═══════════════════════════════════════════
@@ -378,31 +378,38 @@ local function argToStr(a)
     elseif t=="table" then local n=0 for _ in pairs(a) do n=n+1 end return "table("..n.." clés)"
     else return t.." "..tostring(a) end
 end
+local function logFire(remoteName, ...)
+    local parts = {}
+    for i=1,select("#",...) do parts[i]=i..") "..argToStr((select(i,...))) end
+    local dump = remoteName..":FireServer(\n  "..table.concat(parts,"\n  ").."\n)"
+    print(dump) pcall(function() setclipboard(dump) end)
+    pcall(function() Rayfield:Notify({Title="Spy",Content=remoteName.." capturé! copié (F9)",Duration=8}) end)
+end
 SetTab:CreateButton({ Name="🕵️ Spy OreHit (puis mine 1x à la main)", Callback=function()
     if _env.TINOUHUB_SPY then Rayfield:Notify({Title="Spy",Content="Déjà actif — mine un ore",Duration=4}) return end
+    local oreHit = RS:FindFirstChild("OreHit", true)
+    if not oreHit then Rayfield:Notify({Title="Spy",Content="OreHit introuvable",Duration=5}) return end
+    -- méthode 1: hook direct de FireServer (attrape namecall ET dot-call cachés)
     local installed = pcall(function()
-        local hook
-        local function handler(self, ...)
-            local ok2, m = pcall(getnamecallmethod)
-            if ok2 and active() and (m=="FireServer") and self and self.Name=="OreHit" then
-                local args, parts = {...}, {}
-                for i=1,select("#",...) do parts[i]=i..") "..argToStr(args[i]) end
-                local dump="OreHit:FireServer(\n  "..table.concat(parts,"\n  ").."\n)"
-                print(dump) pcall(function() setclipboard(dump) end)
-                pcall(function() Rayfield:Notify({Title="Spy",Content="OreHit capturé! copié (F9)",Duration=8}) end)
-            end
-            return hook(self, ...)
-        end
-        if type(hookmetamethod)=="function" then
-            hook = hookmetamethod(game, "__namecall", handler)
-        else
-            local mt = getrawmetatable(game)
-            setreadonly(mt, false)
-            hook = mt.__namecall
-            mt.__namecall = newcclosure(handler)
-        end
+        local old
+        old = hookfunction(oreHit.FireServer, newcclosure(function(self, ...)
+            if active() and self and self.Name=="OreHit" then logFire("OreHit", ...) end
+            return old(self, ...)
+        end))
         _env.TINOUHUB_SPY = true
     end)
+    -- méthode 2 (fallback): __namecall
+    if not installed then
+        installed = pcall(function()
+            local hook
+            hook = hookmetamethod(game, "__namecall", function(self, ...)
+                local ok2, m = pcall(getnamecallmethod)
+                if ok2 and active() and m=="FireServer" and self and self.Name=="OreHit" then logFire("OreHit", ...) end
+                return hook(self, ...)
+            end)
+            _env.TINOUHUB_SPY = true
+        end)
+    end
     Rayfield:Notify({Title="Spy", Content=installed and "Spy ON — mine un ore à la main" or "Hook non supporté par ton exécuteur", Duration=6})
 end })
 SetTab:CreateButton({ Name="📡 Dump remotes + scripts AFK", Callback=function()
