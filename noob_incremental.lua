@@ -8,7 +8,7 @@ local UIS        = game:GetService("UserInputService")
 local RunS       = game:GetService("RunService")
 local TPS        = game:GetService("TeleportService")
 
-local VERSION   = "1.4.1"
+local VERSION   = "1.5.0"
 local SAVE_FILE = "tinouhub_noob_config.json"
 
 -- ════════════════════════ Session ═══════════════════════════════════════════
@@ -401,9 +401,25 @@ local function argToStr(a)
     elseif t=="table" then local n=0 for _ in pairs(a) do n=n+1 end return "table("..n.." clés)"
     else return t.." "..tostring(a) end
 end
--- Spy universel: logge TOUS les FireServer du client pendant une fenêtre de temps
-_env.TINOUHUB_SPYLOG = _env.TINOUHUB_SPYLOG or {}        -- lignes capturées (dédup)
-_env.TINOUHUB_SPYUNTIL = _env.TINOUHUB_SPYUNTIL or 0     -- fenêtre active jusqu'à
+-- Spy universel: logge TOUS les FireServer du client.
+-- Mode AUTO (fond): capture en continu chaque nouvelle commande -> console + presse-papier + Discord.
+-- Mode fenêtre: capture pendant N secondes (boutons manuels).
+_env.TINOUHUB_SPYLOG = _env.TINOUHUB_SPYLOG or {}        -- dédup (signatures déjà vues)
+_env.TINOUHUB_ALL = _env.TINOUHUB_ALL or {}             -- liste ordonnée de tout ce qui a été capturé
+_env.TINOUHUB_SPYUNTIL = _env.TINOUHUB_SPYUNTIL or 0    -- fenêtre manuelle active jusqu'à
+if _env.TINOUHUB_AUTOSPY == nil then _env.TINOUHUB_AUTOSPY = true end
+local function recordSpy(line)
+    if _env.TINOUHUB_SPYLOG[line] then return end
+    _env.TINOUHUB_SPYLOG[line] = true
+    table.insert(_env.TINOUHUB_ALL, line)
+    print("[SPY] "..line)
+    -- presse-papier = liste complète accumulée (toujours prête à coller)
+    pcall(function() setclipboard("=== REMOTES CAPTURÉS ("..#_env.TINOUHUB_ALL..") ===\n"..table.concat(_env.TINOUHUB_ALL, "\n")) end)
+    -- Discord: 1 message par nouvelle commande (dédup => pas de spam)
+    if _env.TINOUHUB_AUTOSPY then
+        pcall(function() discordLog("📡 Nouveau remote capturé", "```"..string.sub(line,1,1800).."```", 3447003) end)
+    end
+end
 local function installUniversalSpy()
     if _env.TINOUHUB_SPY_INSTALLED then return true end
     local sample = nil
@@ -412,15 +428,11 @@ local function installUniversalSpy()
     local ok = pcall(function()
         local old
         old = hookfunction(sample.FireServer, newcclosure(function(self, ...)
-            if os.clock() < _env.TINOUHUB_SPYUNTIL then
+            if active() and (_env.TINOUHUB_AUTOSPY or os.clock() < _env.TINOUHUB_SPYUNTIL) then
                 local name = (typeof(self)=="Instance") and self.Name or tostring(self)
                 local parts = {}
                 for i=1,select("#",...) do parts[i]=argToStr((select(i,...))) end
-                local line = name.."("..table.concat(parts,", ")..")"
-                if not _env.TINOUHUB_SPYLOG[line] then
-                    _env.TINOUHUB_SPYLOG[line] = true
-                    print("[SPY] "..line)
-                end
+                recordSpy(name.."("..table.concat(parts,", ")..")")
             end
             return old(self, ...)
         end))
@@ -428,6 +440,17 @@ local function installUniversalSpy()
     end)
     return ok
 end
+SetTab:CreateToggle({ Name="🛰️ Auto-Spy remotes (fond + presse-papier + Discord)", CurrentValue=true, Flag="AutoSpy",
+    Callback=function(v) _env.TINOUHUB_AUTOSPY=v if v then installUniversalSpy() end end })
+SetTab:CreateButton({ Name="📤 Exporter tout (presse-papier + F9)", Callback=function()
+    local dump = "=== REMOTES CAPTURÉS ("..#_env.TINOUHUB_ALL..") ===\n"..table.concat(_env.TINOUHUB_ALL, "\n")
+    print(dump) pcall(function() setclipboard(dump) end)
+    Rayfield:Notify({Title="Spy", Content=#_env.TINOUHUB_ALL.." remotes — copié + F9", Duration=5})
+end })
+SetTab:CreateButton({ Name="🗑️ Reset capture", Callback=function()
+    _env.TINOUHUB_SPYLOG = {} _env.TINOUHUB_ALL = {}
+    Rayfield:Notify({Title="Spy", Content="Capture remise à zéro", Duration=3})
+end })
 SetTab:CreateButton({ Name="🕵️ Spy TOUS remotes (8s — mine pendant!)", Callback=function()
     if not installUniversalSpy() then
         Rayfield:Notify({Title="Spy", Content="hookfunction non supporté par Delta?", Duration=6}) return
@@ -548,6 +571,8 @@ SetTab:CreateLabel("Ores:"..#ORES_LIST.." Pioches:"..#PICKAXES)
 
 -- recharge les valeurs sauvées (sliders, toggles, dropdowns, webhook...)
 pcall(function() Rayfield:LoadConfiguration() end)
+-- auto-spy en fond dès le lancement (capture les remotes tout seul)
+if _env.TINOUHUB_AUTOSPY then installUniversalSpy() end
 task.delay(1, function() discordLog("🟢 Script lancé", "**"..player.Name.."** a chargé TinouHub", 5763719) end)
 
 Rayfield:Notify({Title="TinouHub", Content="Mining v"..VERSION.." chargé!", Duration=4})
