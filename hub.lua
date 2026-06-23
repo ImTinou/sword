@@ -14,6 +14,10 @@ local SCRIPTS = {
         name = "Sell Lemons",
         url  = "https://raw.githubusercontent.com/ImTinou/sword/main/sell_lemons.lua",
     },
+    [76911729991355] = {
+        name = "Noob Incremental",
+        url  = "https://raw.githubusercontent.com/ImTinou/sword/main/noob_incremental.lua",
+    },
 }
 
 local placeId = game.PlaceId
