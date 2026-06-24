@@ -8,7 +8,7 @@ local UIS        = game:GetService("UserInputService")
 local RunS       = game:GetService("RunService")
 local TPS        = game:GetService("TeleportService")
 
-local VERSION   = "1.8.3"
+local VERSION   = "1.8.4"
 local SAVE_FILE = "tinouhub_noob_config.json"
 
 -- ════════════════════════ Session ═══════════════════════════════════════════
@@ -490,26 +490,43 @@ local function potionButtons()
     end end
     return out
 end
+local function fireButton(b)
+    -- 1) getconnections: appelle directement les fonctions connectées au bouton
+    if type(getconnections) == "function" then
+        local hit = false
+        for _, sig in ipairs({ b.Activated, b.MouseButton1Click, b.MouseButton1Down, b.InputBegan }) do
+            pcall(function()
+                for _, c in ipairs(getconnections(sig)) do
+                    if c.Fire then c:Fire() elseif c.Function then c.Function() end
+                    hit = true
+                end
+            end)
+        end
+        if hit then return true end
+    end
+    -- 2) firesignal
+    if type(firesignal) == "function" then
+        local ok = false
+        pcall(function() firesignal(b.Activated) ok = true end)
+        pcall(function() firesignal(b.MouseButton1Click) end)
+        if ok then return true end
+    end
+    -- 3) vrai clic souris (coords + inset)
+    if VIM then
+        pcall(function()
+            local inset = game:GetService("GuiService"):GetGuiInset()
+            local p = b.AbsolutePosition + b.AbsoluteSize/2
+            VIM:SendMouseButtonEvent(p.X + inset.X, p.Y + inset.Y, 0, true, game, 0)  task.wait(0.04)
+            VIM:SendMouseButtonEvent(p.X + inset.X, p.Y + inset.Y, 0, false, game, 0)
+        end)
+        return true
+    end
+    return false
+end
 local function clickPotions()
     local n = 0
     for _, b in ipairs(potionButtons()) do
-        local fired = false
-        if type(firesignal) == "function" then
-            -- déclenche le signal du bouton directement (indépendant du curseur)
-            pcall(function() firesignal(b.Activated) fired = true end)
-            pcall(function() firesignal(b.MouseButton1Click) end)
-        end
-        if not fired and VIM then
-            -- fallback: vrai clic souris, coords corrigées avec l'inset GUI
-            pcall(function()
-                local inset = game:GetService("GuiService"):GetGuiInset()
-                local p = b.AbsolutePosition + b.AbsoluteSize/2
-                local x, y = p.X + inset.X, p.Y + inset.Y
-                VIM:SendMouseButtonEvent(x, y, 0, true, game, 0)  task.wait(0.04)
-                VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
-            end)
-        end
-        n = n + 1
+        if fireButton(b) then n = n + 1 end
         task.wait(0.12)
     end
     return n
