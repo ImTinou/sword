@@ -8,7 +8,7 @@ local UIS        = game:GetService("UserInputService")
 local RunS       = game:GetService("RunService")
 local TPS        = game:GetService("TeleportService")
 
-local VERSION   = "1.8.1"
+local VERSION   = "1.8.3"
 local SAVE_FILE = "tinouhub_noob_config.json"
 
 -- ════════════════════════ Session ═══════════════════════════════════════════
@@ -440,13 +440,29 @@ local function runeZoneNames()
     return out
 end
 local selectedRune = (runeZoneNames())[1] or "Deepcore"
--- cible de TP: spot marqué (prioritaire) sinon la part de la zone rune choisie
+-- cible de TP: spot marqué (prioritaire) sinon DÉTECTION AUTO du pad de la rune
 local function runeTarget()
     if _env.TINOUHUB_RUNESPOT then return _env.TINOUHUB_RUNESPOT end
     local f = runeFolder()
     local z = f and f:FindFirstChild(selectedRune)
-    local p = z and orePart(z)
-    return p and p.CFrame
+    if not z then return nil end
+    -- centre horizontal de la zone, puis raycast vers le bas pour trouver le pad
+    local ok, cf, size = pcall(function()
+        if z:IsA("Model") then return z:GetBoundingBox() end
+        local p = orePart(z); return p and p.CFrame, p and p.Size
+    end)
+    if ok and cf then
+        local c = cf.Position
+        local origin = Vector3.new(c.X, c.Y + (size and size.Y or 50), c.Z)
+        local rp = RaycastParams.new()
+        rp.FilterType = Enum.RaycastFilterType.Exclude
+        rp.FilterDescendantsInstances = { player.Character }
+        local res = workspace:Raycast(origin, Vector3.new(0, -(size and size.Y*2 or 200), 0), rp)
+        if res then return CFrame.new(res.Position + Vector3.new(0, 3, 0)) end
+        return CFrame.new(c)  -- fallback: centre brut
+    end
+    local p = orePart(z)
+    return p and (p.CFrame + Vector3.new(0, 3, 0))
 end
 -- lecture d'une devise (GetPlayerData.CURRENCIES[name].Amount[1]), caché 2s
 local _ccyCache, _ccyAt = {}, -999
@@ -475,17 +491,26 @@ local function potionButtons()
     return out
 end
 local function clickPotions()
-    if not VIM then return 0 end
     local n = 0
     for _, b in ipairs(potionButtons()) do
-        pcall(function()
-            local p = b.AbsolutePosition + b.AbsoluteSize/2
-            local x, y = p.X, p.Y + 36   -- +36 ~ inset barre du haut
-            VIM:SendMouseButtonEvent(x, y, 0, true, game, 0)  task.wait(0.05)
-            VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
-            n = n + 1
-        end)
-        task.wait(0.1)
+        local fired = false
+        if type(firesignal) == "function" then
+            -- déclenche le signal du bouton directement (indépendant du curseur)
+            pcall(function() firesignal(b.Activated) fired = true end)
+            pcall(function() firesignal(b.MouseButton1Click) end)
+        end
+        if not fired and VIM then
+            -- fallback: vrai clic souris, coords corrigées avec l'inset GUI
+            pcall(function()
+                local inset = game:GetService("GuiService"):GetGuiInset()
+                local p = b.AbsolutePosition + b.AbsoluteSize/2
+                local x, y = p.X + inset.X, p.Y + inset.Y
+                VIM:SendMouseButtonEvent(x, y, 0, true, game, 0)  task.wait(0.04)
+                VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
+            end)
+        end
+        n = n + 1
+        task.wait(0.12)
     end
     return n
 end
