@@ -8,7 +8,7 @@ local UIS        = game:GetService("UserInputService")
 local RunS       = game:GetService("RunService")
 local TPS        = game:GetService("TeleportService")
 
-local VERSION   = "1.6.2"
+local VERSION   = "1.7.0"
 local SAVE_FILE = "tinouhub_noob_config.json"
 
 -- ════════════════════════ Session ═══════════════════════════════════════════
@@ -185,7 +185,9 @@ local UNITS = { k=1e3, m=1e6, b=1e9, t=1e12, qa=1e15, qd=1e15, qi=1e18, sx=1e21,
     sp=1e24, oc=1e27, no=1e30, de=1e33 }
 local function parseBig(s)
     if not s then return nil end
-    s = s:gsub(",", "")
+    s = tostring(s):gsub(",", "")
+    local direct = tonumber(s)           -- gère "1.42e22", "1500", "10"...
+    if direct then return direct end
     local num, suf = s:match("([%-%d%.]+)%s*(%a*)")
     local n = tonumber(num)
     if not n then return nil end
@@ -252,11 +254,54 @@ local function aliveSelectedOres()
     end
     return list
 end
--- ore vivant sélectionné le plus proche
-local function nearestAliveOre()
-    local h = hrp() if not h then return nil end
+-- récompense de l'ore (label "Amount", ex "+77.9k")
+local function oreReward(m)
+    for _, d in ipairs(m:GetDescendants()) do
+        if d:IsA("TextLabel") and d.Name == "Amount" and d.Text and d.Text ~= "" then
+            return parseBig((d.Text:gsub("[+%s]", ""))), d.Text
+        end
+    end
+    return nil
+end
+-- dégâts de la pioche (GetPlayerData.CURRENCIES.PickaxeDamage), caché 20s
+local _dmgCache, _dmgAt = nil, -999
+local function pickaxeDamage()
+    if _dmgCache and (os.clock() - _dmgAt) < 20 then return _dmgCache end
+    pcall(function()
+        local rf = RS:FindFirstChild("GetPlayerData", true)
+        local d = rf and rf:InvokeServer()
+        local pd = type(d)=="table" and d.CURRENCIES and d.CURRENCIES.PickaxeDamage
+        local v = pd and (pd.TotalMultiplier or pd.NaturalMultiplier)
+        local n = v and parseBig(v)
+        if n and n > 0 then _dmgCache, _dmgAt = n, os.clock() end
+    end)
+    return _dmgCache
+end
+-- rentabilité d'un ore = récompense * dégâts / HP_max (= récompense par coup)
+local function oreEfficiency(m, dmg)
+    local _, mx = oreHealth(m)
+    local rw = oreReward(m)
+    if not mx or not rw or mx <= 0 then return nil end
+    return rw * (dmg or 1) / mx
+end
+local AUTO_FOCUS = false
+-- choisit l'ore cible: meilleur rentable si AUTO_FOCUS, sinon le plus proche
+local function pickTarget()
+    local list = aliveSelectedOres()
+    if #list == 0 then return nil end
+    if AUTO_FOCUS then
+        local dmg = pickaxeDamage() or 1
+        local best, beff = nil, -1
+        for _, m in ipairs(list) do
+            local eff = oreEfficiency(m, dmg)
+            if eff and eff > beff then best, beff = m, eff end
+        end
+        if best then return best end
+    end
+    local h = hrp()
+    if not h then return list[1] end
     local best, bd = nil, math.huge
-    for _, m in ipairs(aliveSelectedOres()) do
+    for _, m in ipairs(list) do
         local p = orePart(m)
         if p then local d=(p.Position-h.Position).Magnitude if d<bd then best,bd=m,d end end
     end
@@ -325,7 +370,7 @@ MineTab:CreateToggle({ Name="Auto-Mine (reste sur l'ore jusqu'à le casser)", Cu
         discordLog(v and "⛏️ Auto-Mine ON" or "⏹️ Auto-Mine OFF", "Total cassés: **"..totalMined.."**", v and 3066993 or 15158332)
         if v then task.spawn(function()
             while AUTO_MINE and active() do
-                local ore = nearestAliveOre()
+                local ore = pickTarget()
                 if ore then
                     -- reste sur CET ore tant qu'il est vivant et existe
                     while AUTO_MINE and active() and ore.Parent and isOreAlive(ore) do
@@ -347,6 +392,32 @@ MineTab:CreateToggle({ Name="Auto-Mine (reste sur l'ore jusqu'à le casser)", Cu
             pcall(function() mineStatusLbl:Set("Mine: Stopped") end)
         end) end
     end })
+MineTab:CreateToggle({ Name="🎯 Auto-focus meilleur ore (rentabilité)", CurrentValue=false, Flag="AutoFocus",
+    Callback=function(v) AUTO_FOCUS=v end })
+MineTab:CreateButton({ Name="📊 Analyse ores (HP / dégâts / rentabilité)", Callback=function()
+    local dmg = pickaxeDamage() or 1
+    local rows = {}
+    for _, m in ipairs(scanOres()) do
+        local _, mx, raw = oreHealth(m)
+        local rw, rwTxt = oreReward(m)
+        local hits = (mx and dmg>0) and (mx/dmg) or nil
+        local eff = (rw and mx and mx>0) and (rw*dmg/mx) or 0
+        table.insert(rows, { name=m.Name, mx=mx, raw=raw, rwTxt=rwTxt, hits=hits, eff=eff,
+            alive=isOreAlive(m) })
+    end
+    table.sort(rows, function(a,b) return a.eff > b.eff end)
+    local L = { "Dégâts pioche/coup: "..string.format("%.3g", dmg), "" }
+    for _, r in ipairs(rows) do
+        table.insert(L, string.format("%-12s HP:%-12s récomp:%-8s coups:%-8s rentab:%.3g%s",
+            r.name, r.raw or "?", r.rwTxt or "?",
+            r.hits and (r.hits<1 and "<1" or string.format("%.0f", r.hits)) or "?",
+            r.eff, r.alive and "" or " (mort)"))
+    end
+    local dump = "=== ANALYSE ORES (triés par rentabilité) ===\n"..table.concat(L, "\n")
+    print(dump) pcall(function() setclipboard(dump) end)
+    local top = rows[1]
+    Rayfield:Notify({Title="Analyse", Content=(top and ("Meilleur: "..top.name) or "rien").." — copié + F9", Duration=6})
+end })
 
 MineTab:CreateSection("Pioche")
 MineTab:CreateDropdown({ Name="Pioche", Options=PICKAXES, CurrentOption=selectedPickaxe, MultipleOptions=false, Flag="PickSel",
