@@ -8,7 +8,7 @@ local UIS        = game:GetService("UserInputService")
 local RunS       = game:GetService("RunService")
 local TPS        = game:GetService("TeleportService")
 
-local VERSION   = "1.6.1"
+local VERSION   = "1.6.2"
 local SAVE_FILE = "tinouhub_noob_config.json"
 
 -- ════════════════════════ Session ═══════════════════════════════════════════
@@ -180,7 +180,33 @@ for _, n in ipairs(ORES_LIST) do oreNameSet[n] = true end
 local function hrp() local c=player.Character return c and c:FindFirstChild("HumanoidRootPart") end
 local function orePart(m) return m.PrimaryPart or m:FindFirstChild("HumanoidRootPart") or m:FindFirstChildWhichIsA("BasePart") end
 
+-- parse un nombre avec suffixe d'idle game ("1.2M", "77.9k", "3.4Qa"...)
+local UNITS = { k=1e3, m=1e6, b=1e9, t=1e12, qa=1e15, qd=1e15, qi=1e18, sx=1e21,
+    sp=1e24, oc=1e27, no=1e30, de=1e33 }
+local function parseBig(s)
+    if not s then return nil end
+    s = s:gsub(",", "")
+    local num, suf = s:match("([%-%d%.]+)%s*(%a*)")
+    local n = tonumber(num)
+    if not n then return nil end
+    if suf and suf ~= "" then local mult = UNITS[suf:lower()] if mult then n = n * mult end end
+    return n
+end
+-- vie de l'ore lue dans le TextLabel "Health" ("cur / max") -> cur, max, texte brut
+local function oreHealth(m)
+    for _, d in ipairs(m:GetDescendants()) do
+        if d:IsA("TextLabel") and d.Name == "Health" and d.Text and d.Text ~= "" then
+            local a, b = d.Text:match("([%d%.,%a%-]+)%s*/%s*([%d%.,%a%-]+)")
+            if a then return parseBig(a), parseBig(b), d.Text end
+            return nil, nil, d.Text
+        end
+    end
+    return nil
+end
 local function isOreAlive(m)
+    local cur = oreHealth(m)
+    if cur ~= nil then return cur > 0 end
+    -- fallback: textes "Respawn"/0 ou Humanoid
     for _, d in ipairs(m:GetDescendants()) do
         if d:IsA("TextLabel") then
             local t = d.Text
@@ -305,7 +331,11 @@ MineTab:CreateToggle({ Name="Auto-Mine (reste sur l'ore jusqu'à le casser)", Cu
                     while AUTO_MINE and active() and ore.Parent and isOreAlive(ore) do
                         local h, p = hrp(), orePart(ore)
                         if h and p then h.CFrame = p.CFrame + Vector3.new(0,4,0) end
-                        pcall(function() mineStatusLbl:Set("Mining "..ore.Name.." | cassés: "..totalMined) end)
+                        pcall(function()
+                            local cur, mx, raw = oreHealth(ore)
+                            local hp = raw and (" | HP "..raw..((cur and mx and mx>0) and (" ("..math.floor(cur/mx*100).."%)") or "")) or ""
+                            mineStatusLbl:Set("Mining "..ore.Name..hp.." | cassés: "..totalMined)
+                        end)
                         task.wait(MINE_RATE)
                     end
                     totalMined = totalMined + 1
