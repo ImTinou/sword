@@ -8,7 +8,7 @@ local UIS        = game:GetService("UserInputService")
 local RunS       = game:GetService("RunService")
 local TPS        = game:GetService("TeleportService")
 
-local VERSION   = "1.8.0"
+local VERSION   = "1.8.1"
 local SAVE_FILE = "tinouhub_noob_config.json"
 
 -- ════════════════════════ Session ═══════════════════════════════════════════
@@ -182,8 +182,18 @@ local function hrp() local c=player.Character return c and c:FindFirstChild("Hum
 local function orePart(m) return m.PrimaryPart or m:FindFirstChild("HumanoidRootPart") or m:FindFirstChildWhichIsA("BasePart") end
 
 -- parse un nombre avec suffixe d'idle game ("1.2M", "77.9k", "3.4Qa"...)
-local UNITS = { k=1e3, m=1e6, b=1e9, t=1e12, qa=1e15, qd=1e15, qi=1e18, sx=1e21,
-    sp=1e24, oc=1e27, no=1e30, de=1e33 }
+-- suffixes idle du jeu (k,M,B,T,Qd,Qn,Sx,Sp,Oc,No,De,UDe,DDe,...,Vt,UVt,...)
+local UNITS = {}
+do
+    local base = {"k","m","b","t","qd","qn","sx","sp","oc","no"}     -- 1e3 .. 1e30
+    for i, s in ipairs(base) do UNITS[s] = 10 ^ (3 * i) end
+    UNITS["qa"] = 1e15  -- alias (certains jeux écrivent Qa au lieu de Qd)
+    UNITS["de"] = 1e33
+    local pre = {"u","d","t","qd","qn","sx","sp","oc","no"}          -- *De: 1e36 .. 1e60
+    for i, p in ipairs(pre) do UNITS[p.."de"] = 10 ^ (33 + 3 * i) end
+    UNITS["vt"] = 1e63
+    for i, p in ipairs(pre) do UNITS[p.."vt"] = 10 ^ (63 + 3 * i) end -- *Vt: 1e66 ..
+end
 local function parseBig(s)
     if not s then return nil end
     s = tostring(s):gsub(",", "")
@@ -255,15 +265,6 @@ local function aliveSelectedOres()
     end
     return list
 end
--- récompense de l'ore (label "Amount", ex "+77.9k")
-local function oreReward(m)
-    for _, d in ipairs(m:GetDescendants()) do
-        if d:IsA("TextLabel") and d.Name == "Amount" and d.Text and d.Text ~= "" then
-            return parseBig((d.Text:gsub("[+%s]", ""))), d.Text
-        end
-    end
-    return nil
-end
 -- dégâts de la pioche (GetPlayerData.CURRENCIES.PickaxeDamage), caché 20s
 local _dmgCache, _dmgAt = nil, -999
 local function pickaxeDamage()
@@ -279,25 +280,29 @@ local function pickaxeDamage()
     return _dmgCache
 end
 -- rentabilité d'un ore = récompense * dégâts / HP_max (= récompense par coup)
-local function oreEfficiency(m, dmg)
-    local _, mx = oreHealth(m)
-    local rw = oreReward(m)
-    if not mx or not rw or mx <= 0 then return nil end
-    return rw * (dmg or 1) / mx
-end
 local AUTO_FOCUS = false
--- choisit l'ore cible: meilleur rentable si AUTO_FOCUS, sinon le plus proche
+local MAX_HITS = 10   -- plafond de coups pour casser (évite Infinity & co)
+-- choisit l'ore cible: plus grosse HP cassable en <= MAX_HITS si AUTO_FOCUS, sinon le plus proche
 local function pickTarget()
     local list = aliveSelectedOres()
     if #list == 0 then return nil end
     if AUTO_FOCUS then
         local dmg = pickaxeDamage() or 1
-        local best, beff = nil, -1
+        local best, bestHP = nil, -1
         for _, m in ipairs(list) do
-            local eff = oreEfficiency(m, dmg)
-            if eff and eff > beff then best, beff = m, eff end
+            local _, mx = oreHealth(m)
+            if mx and mx > 0 and (mx / dmg) <= MAX_HITS and mx > bestHP then
+                best, bestHP = m, mx
+            end
         end
         if best then return best end
+        -- aucun sous le plafond: prend le plus FACILE (plus petite HP) pour pas rester bloqué
+        local easy, eHP = nil, math.huge
+        for _, m in ipairs(list) do
+            local _, mx = oreHealth(m)
+            if mx and mx > 0 and mx < eHP then easy, eHP = m, mx end
+        end
+        if easy then return easy end
     end
     local h = hrp()
     if not h then return list[1] end
@@ -371,31 +376,34 @@ MineTab:CreateToggle({ Name="Auto-Mine (reste sur l'ore jusqu'à le casser)", Cu
             pcall(function() mineStatusLbl:Set("Mine: Stopped") end)
         end) end
     end })
-MineTab:CreateToggle({ Name="🎯 Auto-focus meilleur ore (rentabilité)", CurrentValue=false, Flag="AutoFocus",
+MineTab:CreateToggle({ Name="🎯 Auto-focus (plus grosse HP cassable)", CurrentValue=false, Flag="AutoFocus",
     Callback=function(v) AUTO_FOCUS=v end })
-MineTab:CreateButton({ Name="📊 Analyse ores (HP / dégâts / rentabilité)", Callback=function()
+MineTab:CreateSlider({ Name="Coups max pour casser (anti-Infinity)", Range={1,200}, Increment=1, CurrentValue=10, Flag="MaxHits",
+    Callback=function(v) MAX_HITS=v end })
+MineTab:CreateButton({ Name="📊 Analyse ores (HP / coups)", Callback=function()
     local dmg = pickaxeDamage() or 1
-    local rows = {}
+    local best = {}  -- dédup par nom: garde la plus grosse HP vue
     for _, m in ipairs(scanOres()) do
         local _, mx, raw = oreHealth(m)
-        local rw, rwTxt = oreReward(m)
-        local hits = (mx and dmg>0) and (mx/dmg) or nil
-        local eff = (rw and mx and mx>0) and (rw*dmg/mx) or 0
-        table.insert(rows, { name=m.Name, mx=mx, raw=raw, rwTxt=rwTxt, hits=hits, eff=eff,
-            alive=isOreAlive(m) })
+        if mx and (not best[m.Name] or mx > best[m.Name].mx) then
+            best[m.Name] = { name=m.Name, mx=mx, raw=raw, hits=(dmg>0 and mx/dmg or nil) }
+        end
     end
-    table.sort(rows, function(a,b) return a.eff > b.eff end)
-    local L = { "Dégâts pioche/coup: "..string.format("%.3g", dmg), "" }
+    local rows = {}
+    for _, r in pairs(best) do table.insert(rows, r) end
+    table.sort(rows, function(a,b) return a.mx > b.mx end)  -- plus de HP = mieux
+    local L = { "Dégâts pioche/coup: "..string.format("%.3g", dmg).."  |  plafond: "..MAX_HITS.." coups", "" }
     for _, r in ipairs(rows) do
-        table.insert(L, string.format("%-12s HP:%-12s récomp:%-8s coups:%-8s rentab:%.3g%s",
-            r.name, r.raw or "?", r.rwTxt or "?",
-            r.hits and (r.hits<1 and "<1" or string.format("%.0f", r.hits)) or "?",
-            r.eff, r.alive and "" or " (mort)"))
+        local hitsStr = r.hits and (r.hits<1 and "<1" or string.format("%.1f", r.hits)) or "?"
+        local ok = (r.hits and r.hits <= MAX_HITS) and "✅" or "❌ trop dur"
+        table.insert(L, string.format("%-12s HP:%-12s coups:%-8s %s", r.name, r.raw or "?", hitsStr, ok))
     end
-    local dump = "=== ANALYSE ORES (triés par rentabilité) ===\n"..table.concat(L, "\n")
+    local dump = "=== ANALYSE ORES (triés par HP) ===\n"..table.concat(L, "\n")
     print(dump) pcall(function() setclipboard(dump) end)
-    local top = rows[1]
-    Rayfield:Notify({Title="Analyse", Content=(top and ("Meilleur: "..top.name) or "rien").." — copié + F9", Duration=6})
+    -- meilleur faisable = plus grosse HP avec coups <= plafond
+    local pick
+    for _, r in ipairs(rows) do if r.hits and r.hits <= MAX_HITS then pick = r break end end
+    Rayfield:Notify({Title="Analyse", Content=(pick and ("Focus: "..pick.name.." ("..string.format("%.1f",pick.hits).." coups)") or "rien sous le plafond").." — copié", Duration=6})
 end })
 
 MineTab:CreateSection("Pioche")
@@ -453,11 +461,16 @@ local function currencyAmount(name)
     local c = _ccyCache[name]
     return c and c.Amount and parseBig(c.Amount[1])
 end
--- potions: vrai clic souris sur les boutons GUI nommés "...potion..."
+-- potions: les 3 boutons de boost du HUD (PlayerGui.HUD.Boosts.*)
+local POTION_NAMES = {"2x Rune Luck", "2x Rune Speed", "2x Rune Bulk"}
 local function potionButtons()
-    local out, pg = {}, player:FindFirstChild("PlayerGui")
-    if pg then for _, d in ipairs(pg:GetDescendants()) do
-        if d:IsA("GuiButton") and d.Visible and string.find(string.lower(d.Name), "potion") then table.insert(out, d) end
+    local out = {}
+    local pg = player:FindFirstChild("PlayerGui")
+    local hud = pg and pg:FindFirstChild("HUD")
+    local boosts = hud and hud:FindFirstChild("Boosts")
+    if boosts then for _, n in ipairs(POTION_NAMES) do
+        local b = boosts:FindFirstChild(n)
+        if b and b:IsA("GuiButton") then table.insert(out, b) end
     end end
     return out
 end
@@ -502,6 +515,10 @@ RuneTab:CreateInput({ Name="Devise à surveiller (def: Gem)", CurrentValue="Gem"
     Callback=function(t) if t and t~="" then RUNE_CCY = t end end })
 RuneTab:CreateToggle({ Name="Activer les potions pendant l'ouverture", CurrentValue=false, Flag="RunePotions",
     Callback=function(v) POTIONS_ON = v end })
+RuneTab:CreateButton({ Name="🧪 Test: cliquer les potions maintenant", Callback=function()
+    local n = clickPotions()
+    Rayfield:Notify({Title="Potions", Content=n.." potion(s) cliquée(s) — vérifie en bas", Duration=4})
+end })
 RuneTab:CreateToggle({ Name="🔮 Auto-Rune (ouvre quand Gems ≥ seuil)", CurrentValue=false, Flag="AutoRune",
     Callback=function(v)
         AUTO_RUNE = v
