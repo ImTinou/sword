@@ -8,7 +8,7 @@ local UIS        = game:GetService("UserInputService")
 local RunS       = game:GetService("RunService")
 local TPS        = game:GetService("TeleportService")
 
-local VERSION   = "1.7.0"
+local VERSION   = "1.8.0"
 local SAVE_FILE = "tinouhub_noob_config.json"
 
 -- ════════════════════════ Session ═══════════════════════════════════════════
@@ -104,6 +104,7 @@ local ORES_LIST = liveOreNames()
 local MINE_RATE = 0.35
 local AUTO_MINE, AUTO_EXCH, ANTI_AFK = false, false, true
 local AUTO_PICK, AUTO_AWAKEN = false, false
+local MINE_PAUSED = false  -- mis à true par l'auto-rune le temps d'ouvrir
 local selectedOres = {}
 local selectedPickaxe = PICKAXES[1] or "StonePickaxe"
 
@@ -332,33 +333,6 @@ MineTab:CreateButton({ Name="↻ Rescanner les ores", Callback=function()
     pcall(function() oreDropdown:Refresh(oreNamesPresent()) end)
     Rayfield:Notify({Title="Mine", Content="Ores rescannés ("..#oreNamesPresent().." types)", Duration=2})
 end })
-MineTab:CreateButton({ Name="🐛 Debug ores (copie les noms)", Callback=function()
-    local h = hrp()
-    local origin = h and h.Position or Vector3.new()
-    local seen, lines = {}, {}
-    for _, m in ipairs(workspace:GetDescendants()) do
-        if m:IsA("Model") then
-            local p = orePart(m)
-            if p then
-                local d = (p.Position - origin).Magnitude
-                if d <= 600 then
-                    local key = m.Name
-                    if not seen[key] then
-                        seen[key] = true
-                        local hum = m:FindFirstChildOfClass("Humanoid")
-                        table.insert(lines, string.format("%-22s | %s | %s | %dst",
-                            m.Name, m:GetFullName(), hum and "HP="..tostring(hum.Health) or "noHum", math.floor(d)))
-                    end
-                end
-            end
-        end
-    end
-    table.sort(lines)
-    local dump = "ORE DEBUG ("..#lines.." modèles uniques <600st):\n"..table.concat(lines,"\n")
-    print(dump)
-    pcall(function() setclipboard(dump) end)
-    Rayfield:Notify({Title="Debug", Content=#lines.." modèles trouvés — copié + console (F9)", Duration=5})
-end })
 
 MineTab:CreateSection("Auto-Mine")
 mineStatusLbl = MineTab:CreateLabel("Mine: Idle")
@@ -370,10 +344,14 @@ MineTab:CreateToggle({ Name="Auto-Mine (reste sur l'ore jusqu'à le casser)", Cu
         discordLog(v and "⛏️ Auto-Mine ON" or "⏹️ Auto-Mine OFF", "Total cassés: **"..totalMined.."**", v and 3066993 or 15158332)
         if v then task.spawn(function()
             while AUTO_MINE and active() do
+              if MINE_PAUSED then
+                pcall(function() mineStatusLbl:Set("Minage en pause (rune)") end)
+                task.wait(0.3)
+              else
                 local ore = pickTarget()
                 if ore then
                     -- reste sur CET ore tant qu'il est vivant et existe
-                    while AUTO_MINE and active() and ore.Parent and isOreAlive(ore) do
+                    while AUTO_MINE and active() and not MINE_PAUSED and ore.Parent and isOreAlive(ore) do
                         local h, p = hrp(), orePart(ore)
                         if h and p then h.CFrame = p.CFrame + Vector3.new(0,4,0) end
                         pcall(function()
@@ -388,6 +366,7 @@ MineTab:CreateToggle({ Name="Auto-Mine (reste sur l'ore jusqu'à le casser)", Cu
                     pcall(function() mineStatusLbl:Set("Aucun ore vivant (rescanne?)") end)
                     task.wait(MINE_RATE)
                 end
+              end
             end
             pcall(function() mineStatusLbl:Set("Mine: Stopped") end)
         end) end
@@ -436,6 +415,163 @@ MineTab:CreateSection("Exchange minéraux")
 MineTab:CreateButton({ Name="Exchange ALL", Callback=function() Fire("ExchangeAllMinerals") Rayfield:Notify({Title="Exchange",Content="Tout échangé",Duration=2}) end })
 MineTab:CreateToggle({ Name="Auto-Exchange (5s)", CurrentValue=false, Flag="AutoExch",
     Callback=function(v) AUTO_EXCH=v if v then task.spawn(function() while AUTO_EXCH and active() do Fire("ExchangeAllMinerals") task.wait(5) end end) end end })
+
+-- ═══════════════════ RUNE ═══════════════════════════════════════════════════
+local RuneTab = Window:CreateTab("Rune", "gem")
+
+-- dossier des runes: Workspace.__GAME_CONTENT.RuneZones
+local function runeFolder()
+    local gc = workspace:FindFirstChild("__GAME_CONTENT")
+    return gc and gc:FindFirstChild("RuneZones")
+end
+local function runeZoneNames()
+    local f, out = runeFolder(), {}
+    if f then for _, c in ipairs(f:GetChildren()) do table.insert(out, c.Name) end end
+    if #out == 0 then out = {"Deepcore", "Snowy"} end
+    table.sort(out)
+    return out
+end
+local selectedRune = (runeZoneNames())[1] or "Deepcore"
+-- cible de TP: spot marqué (prioritaire) sinon la part de la zone rune choisie
+local function runeTarget()
+    if _env.TINOUHUB_RUNESPOT then return _env.TINOUHUB_RUNESPOT end
+    local f = runeFolder()
+    local z = f and f:FindFirstChild(selectedRune)
+    local p = z and orePart(z)
+    return p and p.CFrame
+end
+-- lecture d'une devise (GetPlayerData.CURRENCIES[name].Amount[1]), caché 2s
+local _ccyCache, _ccyAt = {}, -999
+local function currencyAmount(name)
+    if os.clock() - _ccyAt > 2 then
+        pcall(function()
+            local rf = RS:FindFirstChild("GetPlayerData", true)
+            local d = rf and rf:InvokeServer()
+            if type(d) == "table" and d.CURRENCIES then _ccyCache = d.CURRENCIES _ccyAt = os.clock() end
+        end)
+    end
+    local c = _ccyCache[name]
+    return c and c.Amount and parseBig(c.Amount[1])
+end
+-- potions: vrai clic souris sur les boutons GUI nommés "...potion..."
+local function potionButtons()
+    local out, pg = {}, player:FindFirstChild("PlayerGui")
+    if pg then for _, d in ipairs(pg:GetDescendants()) do
+        if d:IsA("GuiButton") and d.Visible and string.find(string.lower(d.Name), "potion") then table.insert(out, d) end
+    end end
+    return out
+end
+local function clickPotions()
+    if not VIM then return 0 end
+    local n = 0
+    for _, b in ipairs(potionButtons()) do
+        pcall(function()
+            local p = b.AbsolutePosition + b.AbsoluteSize/2
+            local x, y = p.X, p.Y + 36   -- +36 ~ inset barre du haut
+            VIM:SendMouseButtonEvent(x, y, 0, true, game, 0)  task.wait(0.05)
+            VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
+            n = n + 1
+        end)
+        task.wait(0.1)
+    end
+    return n
+end
+
+local AUTO_RUNE, RUNE_THRESHOLD, RUNE_CCY, POTIONS_ON = false, 0, "Gem", false
+RuneTab:CreateSection("Spot de la rune")
+local runeStatusLbl = RuneTab:CreateLabel("Rune: Idle")
+RuneTab:CreateDropdown({ Name="Zone rune", Options=runeZoneNames(), CurrentOption=selectedRune, Flag="RuneZone",
+    Callback=function(o) selectedRune = type(o)=="table" and o[1] or o end })
+RuneTab:CreateButton({ Name="📍 Marquer le spot (mets-toi sur la rune)", Callback=function()
+    local h = hrp()
+    if h then _env.TINOUHUB_RUNESPOT = h.CFrame
+        Rayfield:Notify({Title="Rune", Content="Spot marqué ✅", Duration=3})
+    else Rayfield:Notify({Title="Rune", Content="Pas de perso", Duration=3}) end
+end })
+RuneTab:CreateButton({ Name="🧹 Oublier le spot marqué", Callback=function()
+    _env.TINOUHUB_RUNESPOT = nil
+    Rayfield:Notify({Title="Rune", Content="Spot oublié (utilise la zone)", Duration=3})
+end })
+
+RuneTab:CreateSection("Auto-Rune")
+RuneTab:CreateInput({ Name="Seuil de Gems (ex: 10Qn)", CurrentValue="", PlaceholderText="10Qn",
+    RemoveTextAfterFocusLost=false, Flag="RuneThresh",
+    Callback=function(t) RUNE_THRESHOLD = parseBig(t) or 0 end })
+RuneTab:CreateInput({ Name="Devise à surveiller (def: Gem)", CurrentValue="Gem", PlaceholderText="Gem",
+    RemoveTextAfterFocusLost=false, Flag="RuneCcy",
+    Callback=function(t) if t and t~="" then RUNE_CCY = t end end })
+RuneTab:CreateToggle({ Name="Activer les potions pendant l'ouverture", CurrentValue=false, Flag="RunePotions",
+    Callback=function(v) POTIONS_ON = v end })
+RuneTab:CreateToggle({ Name="🔮 Auto-Rune (ouvre quand Gems ≥ seuil)", CurrentValue=false, Flag="AutoRune",
+    Callback=function(v)
+        AUTO_RUNE = v
+        if v then task.spawn(function()
+            while AUTO_RUNE and active() do
+                local tgt = runeTarget()
+                local g = currencyAmount(RUNE_CCY)
+                if RUNE_THRESHOLD <= 0 then
+                    pcall(function() runeStatusLbl:Set("Mets un seuil de Gems") end) task.wait(2)
+                elseif not tgt then
+                    pcall(function() runeStatusLbl:Set("Marque le spot rune") end) task.wait(2)
+                elseif g and g >= RUNE_THRESHOLD then
+                    -- 1) pause le minage  2) active les potions  3) ENSUITE on TP
+                    MINE_PAUSED = true
+                    if POTIONS_ON then
+                        pcall(function() runeStatusLbl:Set("Activation potions…") end)
+                        clickPotions()
+                        task.wait(0.6)
+                    end
+                    discordLog("🔮 Auto-Rune: ouverture", "Gems: **"..tostring(g).."** ≥ seuil", 10181046)
+                    while AUTO_RUNE and active() do
+                        g = currencyAmount(RUNE_CCY)
+                        if not g or g < RUNE_THRESHOLD then break end
+                        local h = hrp() if h then h.CFrame = tgt end
+                        pcall(function() runeStatusLbl:Set("Ouverture… "..RUNE_CCY..": "..tostring(g)) end)
+                        task.wait(0.4)
+                    end
+                    if POTIONS_ON then clickPotions() end  -- désactive les potions
+                    MINE_PAUSED = false                     -- reprend le minage
+                    discordLog("🔮 Auto-Rune: stop", "Gems sous le seuil", 15105570)
+                    pcall(function() runeStatusLbl:Set("Pause (gems < seuil)") end)
+                else
+                    pcall(function() runeStatusLbl:Set("Attente | "..RUNE_CCY..": "..tostring(g or "?").." / "..RUNE_THRESHOLD) end)
+                    task.wait(2)
+                end
+            end
+            pcall(function() runeStatusLbl:Set("Rune: Stopped") end)
+        end) end
+    end })
+
+RuneTab:CreateSection("Outils (si besoin de régler)")
+RuneTab:CreateButton({ Name="💎 Dump devises (trouver le bon Gem)", Callback=function()
+    local rf = RS:FindFirstChild("GetPlayerData", true)
+    local ok, d = pcall(function() return rf and rf:InvokeServer() end)
+    local L = {}
+    if ok and type(d)=="table" and d.CURRENCIES then
+        for name, c in pairs(d.CURRENCIES) do
+            local a = c.Amount and c.Amount[1]
+            table.insert(L, name.." = "..tostring(a))
+        end
+        table.sort(L)
+    end
+    local dump = "=== DEVISES (Amount[1]) ===\n"..table.concat(L, "\n")
+    print(dump) pcall(function() setclipboard(dump) end)
+    Rayfield:Notify({Title="Rune", Content=#L.." devises — copié + F9", Duration=5})
+end })
+RuneTab:CreateButton({ Name="🧪 Dump boutons potions (PlayerGui)", Callback=function()
+    local L, pg = {}, player:FindFirstChild("PlayerGui")
+    if pg then for _, d in ipairs(pg:GetDescendants()) do
+        if d:IsA("GuiButton") then
+            local n = string.lower(d.Name)
+            if n:find("potion") or n:find("luck") or n:find("bulk") or n:find("speed") then
+                table.insert(L, d.ClassName.." | vis="..tostring(d.Visible).." | "..d:GetFullName())
+            end
+        end
+    end end
+    local dump = "=== BOUTONS POTIONS ("..#L..") ===\n"..table.concat(L, "\n")
+    print(dump) pcall(function() setclipboard(dump) end)
+    Rayfield:Notify({Title="Rune", Content=#L.." boutons — copié + F9", Duration=5})
+end })
 
 -- ═══════════════════ PLAYER ═════════════════════════════════════════════════
 local PlayerTab = Window:CreateTab("Player", "user")
@@ -495,7 +631,7 @@ SetTab:CreateToggle({ Name="Anti-AFK (input + mouvement)", CurrentValue=ANTI_AFK
 SetTab:CreateToggle({ Name="Désactiver l'AFK du jeu (AFKScript)", CurrentValue=true, Flag="KillAFK",
     Callback=function(v) KILL_GAME_AFK=v if v then killGameAFK() end end })
 
-SetTab:CreateSection("Debug système du jeu")
+SetTab:CreateSection("Capture remotes (auto-spy)")
 local function argToStr(a)
     local t = typeof(a)
     if t=="Instance" then return "Instance "..a.ClassName.." -> "..a:GetFullName()
@@ -551,128 +687,6 @@ end })
 SetTab:CreateButton({ Name="🗑️ Reset capture", Callback=function()
     _env.TINOUHUB_SPYLOG = {} _env.TINOUHUB_ALL = {}
     Rayfield:Notify({Title="Spy", Content="Capture remise à zéro", Duration=3})
-end })
-SetTab:CreateButton({ Name="🕵️ Spy TOUS remotes (8s — mine pendant!)", Callback=function()
-    if not installUniversalSpy() then
-        Rayfield:Notify({Title="Spy", Content="hookfunction non supporté par Delta?", Duration=6}) return
-    end
-    _env.TINOUHUB_SPYLOG = {}                 -- reset dédup pour cette session
-    _env.TINOUHUB_SPYUNTIL = os.clock() + 8
-    Rayfield:Notify({Title="Spy", Content="MINE MAINTENANT (8s) — résultats en console F9", Duration=8})
-    task.delay(8.2, function()
-        local keys = {}
-        for k in pairs(_env.TINOUHUB_SPYLOG) do table.insert(keys, k) end
-        table.sort(keys)
-        local dump = "=== REMOTES ENVOYÉS PENDANT LE MINAGE ("..#keys..") ===\n"..table.concat(keys, "\n")
-        print(dump) pcall(function() setclipboard(dump) end)
-        Rayfield:Notify({Title="Spy", Content=#keys.." remotes capturés — copié + F9", Duration=6})
-    end)
-end })
-SetTab:CreateButton({ Name="📡 Dump remotes + scripts AFK", Callback=function()
-    local lines = {}
-    -- 1) tous les remotes (events/functions) du jeu
-    table.insert(lines, "=== REMOTES ===")
-    for _, svc in ipairs({RS, workspace, game:GetService("Players")}) do
-        pcall(function()
-            for _, d in ipairs(svc:GetDescendants()) do
-                if d:IsA("RemoteEvent") or d:IsA("RemoteFunction") or d:IsA("BindableEvent") then
-                    table.insert(lines, d.ClassName.." | "..d:GetFullName())
-                end
-            end
-        end)
-    end
-    -- 2) scripts/modules dont le nom évoque l'AFK/idle/kick/mine
-    table.insert(lines, "")
-    table.insert(lines, "=== SCRIPTS (afk/idle/kick/mine) ===")
-    for _, d in ipairs(game:GetDescendants()) do
-        if (d:IsA("LocalScript") or d:IsA("ModuleScript") or d:IsA("Script")) then
-            local n = string.lower(d.Name)
-            if n:find("afk") or n:find("idle") or n:find("kick") or n:find("mine") or n:find("antiafk") then
-                table.insert(lines, d.ClassName.." | "..d:GetFullName())
-            end
-        end
-    end
-    local dump = table.concat(lines, "\n")
-    print(dump)
-    pcall(function() setclipboard(dump) end)
-    Rayfield:Notify({Title="Debug", Content=#lines.." lignes — copié + console (F9)", Duration=5})
-end })
-
-SetTab:CreateSection("Exploration (sonde le jeu)")
--- sérialiseur lisible (tables/instances/fonctions), profondeur limitée
-local function serialize(v, depth, seen)
-    depth = depth or 0
-    local t = typeof(v)
-    if t == "Instance" then return "<"..v.ClassName..":"..v.Name..">"
-    elseif t == "table" then
-        if depth > 3 then return "{...}" end
-        seen = seen or {}
-        if seen[v] then return "<cycle>" end
-        seen[v] = true
-        local parts, n = {}, 0
-        for k, val in pairs(v) do
-            n = n + 1
-            if n > 50 then table.insert(parts, "...") break end
-            table.insert(parts, tostring(k).." = "..serialize(val, depth+1, seen))
-        end
-        return "{ "..table.concat(parts, ", ").." }"
-    elseif t == "function" then return "<function>"
-    elseif t == "string" then return '"'..v..'"'
-    else return tostring(v) end
-end
-local function publish(title, body)
-    local dump = "=== "..title.." ===\n"..body
-    print(dump) pcall(function() setclipboard(dump) end)
-    Rayfield:Notify({Title="Explore", Content=title.." — copié + F9", Duration=5})
-end
--- invoque une RemoteFunction et dump le résultat (ex: tes données joueur)
-SetTab:CreateButton({ Name="🔍 Dump mes données (GetPlayerData)", Callback=function()
-    local rf = RS:FindFirstChild("GetPlayerData", true) or RS:FindFirstChild("GetMyData", true)
-    if not rf then Rayfield:Notify({Title="Explore",Content="GetPlayerData introuvable",Duration=4}) return end
-    local ok, res = pcall(function() return rf:InvokeServer() end)
-    publish("GetPlayerData", ok and serialize(res) or ("erreur: "..tostring(res)))
-end })
--- require un module du jeu et dump son contenu
-SetTab:CreateButton({ Name="📦 Dump module Minerals", Callback=function()
-    local mod = loadModule(SMF, "Minerals")
-    publish("Module Minerals", mod and serialize(mod) or "module introuvable / non-requireable")
-end })
--- inspecte l'ore le plus proche: attributs + Values + textes GUI (pour trouver la HP)
-SetTab:CreateButton({ Name="🔬 Inspecter ore le plus proche (HP)", Callback=function()
-    local h = hrp()
-    if not h then Rayfield:Notify({Title="Inspect",Content="pas de perso",Duration=4}) return end
-    local best, bd
-    for _, m in ipairs(scanOres()) do
-        local p = orePart(m)
-        if p then local d=(p.Position-h.Position).Magnitude if not bd or d<bd then best,bd=m,d end end
-    end
-    if not best then Rayfield:Notify({Title="Inspect",Content="aucun ore trouvé",Duration=4}) return end
-    local base = best:GetFullName()
-    local L = { "ORE: "..best.Name.." | "..math.floor(bd).."st | "..base }
-    for k, v in pairs(best:GetAttributes()) do table.insert(L, "[attr] "..k.." = "..tostring(v)) end
-    for _, d in ipairs(best:GetDescendants()) do
-        if d:IsA("ValueBase") then
-            table.insert(L, "[value] "..d.Name.." ("..d.ClassName..") = "..tostring(d.Value))
-        elseif (d:IsA("TextLabel") or d:IsA("TextButton")) and d.Text and d.Text~="" then
-            table.insert(L, "[text] "..(d.Name)..' = "'..d.Text..'"')
-        end
-    end
-    publish("INSPECT "..best.Name, table.concat(L, "\n"))
-end })
--- spy ciblé MainRemote: capture les commandes quand tu fais une action (8s)
-SetTab:CreateButton({ Name="🕵️ Spy MainRemote (8s — fais une action!)", Callback=function()
-    if not installUniversalSpy() then
-        Rayfield:Notify({Title="Spy", Content="hookfunction non supporté?", Duration=5}) return
-    end
-    _env.TINOUHUB_SPYLOG = {}
-    _env.TINOUHUB_SPYUNTIL = os.clock() + 8
-    Rayfield:Notify({Title="Spy", Content="FAIS UNE ACTION (achat/prestige/exchange) — 8s", Duration=8})
-    task.delay(8.2, function()
-        local keys = {}
-        for k in pairs(_env.TINOUHUB_SPYLOG) do table.insert(keys, k) end
-        table.sort(keys)
-        publish("ACTIONS CAPTURÉES ("..#keys..")", table.concat(keys, "\n"))
-    end)
 end })
 
 -- ════════════════════ Stats périodiques (Discord) ═══════════════════════════
