@@ -8,7 +8,7 @@ local UIS        = game:GetService("UserInputService")
 local RunS       = game:GetService("RunService")
 local TPS        = game:GetService("TeleportService")
 
-local VERSION   = "1.6.0"
+local VERSION   = "1.6.1"
 local SAVE_FILE = "tinouhub_noob_config.json"
 
 -- ════════════════════════ Session ═══════════════════════════════════════════
@@ -535,6 +535,28 @@ end })
 SetTab:CreateButton({ Name="📦 Dump module Minerals", Callback=function()
     local mod = loadModule(SMF, "Minerals")
     publish("Module Minerals", mod and serialize(mod) or "module introuvable / non-requireable")
+end })
+-- inspecte l'ore le plus proche: attributs + Values + textes GUI (pour trouver la HP)
+SetTab:CreateButton({ Name="🔬 Inspecter ore le plus proche (HP)", Callback=function()
+    local h = hrp()
+    if not h then Rayfield:Notify({Title="Inspect",Content="pas de perso",Duration=4}) return end
+    local best, bd
+    for _, m in ipairs(scanOres()) do
+        local p = orePart(m)
+        if p then local d=(p.Position-h.Position).Magnitude if not bd or d<bd then best,bd=m,d end end
+    end
+    if not best then Rayfield:Notify({Title="Inspect",Content="aucun ore trouvé",Duration=4}) return end
+    local base = best:GetFullName()
+    local L = { "ORE: "..best.Name.." | "..math.floor(bd).."st | "..base }
+    for k, v in pairs(best:GetAttributes()) do table.insert(L, "[attr] "..k.." = "..tostring(v)) end
+    for _, d in ipairs(best:GetDescendants()) do
+        if d:IsA("ValueBase") then
+            table.insert(L, "[value] "..d.Name.." ("..d.ClassName..") = "..tostring(d.Value))
+        elseif (d:IsA("TextLabel") or d:IsA("TextButton")) and d.Text and d.Text~="" then
+            table.insert(L, "[text] "..(d.Name)..' = "'..d.Text..'"')
+        end
+    end
+    publish("INSPECT "..best.Name, table.concat(L, "\n"))
 end })
 -- spy ciblé MainRemote: capture les commandes quand tu fais une action (8s)
 SetTab:CreateButton({ Name="🕵️ Spy MainRemote (8s — fais une action!)", Callback=function()
