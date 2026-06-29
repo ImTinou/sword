@@ -8,7 +8,7 @@ local UIS        = game:GetService("UserInputService")
 local RunS       = game:GetService("RunService")
 local TPS        = game:GetService("TeleportService")
 
-local VERSION   = "1.8.4"
+local VERSION   = "1.9.0"
 local SAVE_FILE = "tinouhub_noob_config.json"
 
 -- ════════════════════════ Session ═══════════════════════════════════════════
@@ -477,57 +477,31 @@ local function currencyAmount(name)
     local c = _ccyCache[name]
     return c and c.Amount and parseBig(c.Amount[1])
 end
--- potions: les 3 boutons de boost du HUD (PlayerGui.HUD.Boosts.*)
+-- potions de rune: activer/pause via le remote du jeu (TogglePotionPause)
+-- l'état est lisible sur le label HUD.Boosts.<nom>.Boost ("Paused" = en pause)
 local POTION_NAMES = {"2x Rune Luck", "2x Rune Speed", "2x Rune Bulk"}
-local function potionButtons()
-    local out = {}
+local function potionLabel(name)
     local pg = player:FindFirstChild("PlayerGui")
     local hud = pg and pg:FindFirstChild("HUD")
     local boosts = hud and hud:FindFirstChild("Boosts")
-    if boosts then for _, n in ipairs(POTION_NAMES) do
-        local b = boosts:FindFirstChild(n)
-        if b and b:IsA("GuiButton") then table.insert(out, b) end
-    end end
-    return out
+    local b = boosts and boosts:FindFirstChild(name)
+    local t = b and b:FindFirstChild("Boost", true)
+    return t and t.Text
 end
-local function fireButton(b)
-    -- 1) getconnections: appelle directement les fonctions connectées au bouton
-    if type(getconnections) == "function" then
-        local hit = false
-        for _, sig in ipairs({ b.Activated, b.MouseButton1Click, b.MouseButton1Down, b.InputBegan }) do
-            pcall(function()
-                for _, c in ipairs(getconnections(sig)) do
-                    if c.Fire then c:Fire() elseif c.Function then c.Function() end
-                    hit = true
-                end
-            end)
-        end
-        if hit then return true end
-    end
-    -- 2) firesignal
-    if type(firesignal) == "function" then
-        local ok = false
-        pcall(function() firesignal(b.Activated) ok = true end)
-        pcall(function() firesignal(b.MouseButton1Click) end)
-        if ok then return true end
-    end
-    -- 3) vrai clic souris (coords + inset)
-    if VIM then
-        pcall(function()
-            local inset = game:GetService("GuiService"):GetGuiInset()
-            local p = b.AbsolutePosition + b.AbsoluteSize/2
-            VIM:SendMouseButtonEvent(p.X + inset.X, p.Y + inset.Y, 0, true, game, 0)  task.wait(0.04)
-            VIM:SendMouseButtonEvent(p.X + inset.X, p.Y + inset.Y, 0, false, game, 0)
-        end)
-        return true
-    end
-    return false
-end
-local function clickPotions()
+-- met les 3 potions dans l'état voulu (activate=true => reprises, false => en pause)
+local function setPotions(activate)
     local n = 0
-    for _, b in ipairs(potionButtons()) do
-        if fireButton(b) then n = n + 1 end
-        task.wait(0.12)
+    for _, name in ipairs(POTION_NAMES) do
+        local txt = potionLabel(name)
+        if txt and txt ~= "" then
+            local paused = (txt == "Paused")
+            -- toggle seulement si l'état actuel ≠ état voulu (TogglePotionPause bascule)
+            if (activate and paused) or ((not activate) and (not paused)) then
+                Fire("TogglePotionPause", name)
+                n = n + 1
+                task.wait(0.2)  -- > cooldown anti-spam
+            end
+        end
     end
     return n
 end
@@ -557,9 +531,13 @@ RuneTab:CreateInput({ Name="Devise à surveiller (def: Gem)", CurrentValue="Gem"
     Callback=function(t) if t and t~="" then RUNE_CCY = t end end })
 RuneTab:CreateToggle({ Name="Activer les potions pendant l'ouverture", CurrentValue=false, Flag="RunePotions",
     Callback=function(v) POTIONS_ON = v end })
-RuneTab:CreateButton({ Name="🧪 Test: cliquer les potions maintenant", Callback=function()
-    local n = clickPotions()
-    Rayfield:Notify({Title="Potions", Content=n.." potion(s) cliquée(s) — vérifie en bas", Duration=4})
+RuneTab:CreateButton({ Name="🧪 Test: activer les potions", Callback=function()
+    local n = setPotions(true)
+    Rayfield:Notify({Title="Potions", Content=n.." potion(s) reprise(s) — vérifie en bas", Duration=4})
+end })
+RuneTab:CreateButton({ Name="⏸️ Test: mettre les potions en pause", Callback=function()
+    local n = setPotions(false)
+    Rayfield:Notify({Title="Potions", Content=n.." potion(s) en pause", Duration=4})
 end })
 RuneTab:CreateToggle({ Name="🔮 Auto-Rune (ouvre quand Gems ≥ seuil)", CurrentValue=false, Flag="AutoRune",
     Callback=function(v)
@@ -577,7 +555,7 @@ RuneTab:CreateToggle({ Name="🔮 Auto-Rune (ouvre quand Gems ≥ seuil)", Curre
                     MINE_PAUSED = true
                     if POTIONS_ON then
                         pcall(function() runeStatusLbl:Set("Activation potions…") end)
-                        clickPotions()
+                        setPotions(true)
                         task.wait(0.6)
                     end
                     discordLog("🔮 Auto-Rune: ouverture", "Gems: **"..tostring(g).."** ≥ seuil", 10181046)
@@ -588,8 +566,8 @@ RuneTab:CreateToggle({ Name="🔮 Auto-Rune (ouvre quand Gems ≥ seuil)", Curre
                         pcall(function() runeStatusLbl:Set("Ouverture… "..RUNE_CCY..": "..tostring(g)) end)
                         task.wait(0.4)
                     end
-                    if POTIONS_ON then clickPotions() end  -- désactive les potions
-                    MINE_PAUSED = false                     -- reprend le minage
+                    if POTIONS_ON then setPotions(false) end  -- remet les potions en pause
+                    MINE_PAUSED = false                       -- reprend le minage
                     discordLog("🔮 Auto-Rune: stop", "Gems sous le seuil", 15105570)
                     pcall(function() runeStatusLbl:Set("Pause (gems < seuil)") end)
                 else
