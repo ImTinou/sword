@@ -8,7 +8,7 @@ local UIS        = game:GetService("UserInputService")
 local RunS       = game:GetService("RunService")
 local TPS        = game:GetService("TeleportService")
 
-local VERSION   = "1.9.0"
+local VERSION   = "1.9.1"
 local SAVE_FILE = "tinouhub_noob_config.json"
 
 -- ════════════════════════ Session ═══════════════════════════════════════════
@@ -439,28 +439,27 @@ local function runeZoneNames()
     table.sort(out)
     return out
 end
-local selectedRune = (runeZoneNames())[1] or "Deepcore"
--- cible de TP: spot marqué (prioritaire) sinon DÉTECTION AUTO du pad de la rune
+-- défaut: Deepcore si présent, sinon le 1er
+local function defaultRune()
+    for _, n in ipairs(runeZoneNames()) do if n == "Deepcore" then return n end end
+    return (runeZoneNames())[1] or "Deepcore"
+end
+local selectedRune = defaultRune()
+-- cible de TP: spot marqué (prioritaire) sinon le PAD de la zone = la plus grande
+-- BasePart plate (surface XZ max). Le serveur met CurrentRuneZone quand on est dessus.
 local function runeTarget()
     if _env.TINOUHUB_RUNESPOT then return _env.TINOUHUB_RUNESPOT end
     local f = runeFolder()
     local z = f and f:FindFirstChild(selectedRune)
     if not z then return nil end
-    -- centre horizontal de la zone, puis raycast vers le bas pour trouver le pad
-    local ok, cf, size = pcall(function()
-        if z:IsA("Model") then return z:GetBoundingBox() end
-        local p = orePart(z); return p and p.CFrame, p and p.Size
-    end)
-    if ok and cf then
-        local c = cf.Position
-        local origin = Vector3.new(c.X, c.Y + (size and size.Y or 50), c.Z)
-        local rp = RaycastParams.new()
-        rp.FilterType = Enum.RaycastFilterType.Exclude
-        rp.FilterDescendantsInstances = { player.Character }
-        local res = workspace:Raycast(origin, Vector3.new(0, -(size and size.Y*2 or 200), 0), rp)
-        if res then return CFrame.new(res.Position + Vector3.new(0, 3, 0)) end
-        return CFrame.new(c)  -- fallback: centre brut
+    local best, area = nil, -1
+    for _, d in ipairs(z:GetDescendants()) do
+        if d:IsA("BasePart") then
+            local a = d.Size.X * d.Size.Z
+            if a > area then area, best = a, d end
+        end
     end
+    if best then return CFrame.new(best.Position + Vector3.new(0, best.Size.Y/2 + 4, 0)) end
     local p = orePart(z)
     return p and (p.CFrame + Vector3.new(0, 3, 0))
 end
