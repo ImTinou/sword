@@ -8,7 +8,7 @@ local UIS        = game:GetService("UserInputService")
 local RunS       = game:GetService("RunService")
 local TPS        = game:GetService("TeleportService")
 
-local VERSION   = "1.10.0"
+local VERSION   = "1.10.1"
 local SAVE_FILE = "tinouhub_noob_config.json"
 
 -- ════════════════════════ Session ═══════════════════════════════════════════
@@ -524,6 +524,9 @@ local function potionLabel(name)
     return t and t.Text
 end
 -- met les 3 potions dans l'état voulu (activate=true => reprises, false => en pause)
+-- garde anti-spam: pas de re-toggle d'une potion avant POT_CD secondes (cooldown du jeu)
+local POT_CD = 4
+_env.TINOUHUB_POTTOG = _env.TINOUHUB_POTTOG or {}
 local function setPotions(activate)
     local n = 0
     for _, name in ipairs(POTION_NAMES) do
@@ -532,9 +535,13 @@ local function setPotions(activate)
             local paused = (txt == "Paused")
             -- toggle seulement si l'état actuel ≠ état voulu (TogglePotionPause bascule)
             if (activate and paused) or ((not activate) and (not paused)) then
-                Fire("TogglePotionPause", name)
-                n = n + 1
-                task.wait(0.2)  -- > cooldown anti-spam
+                local last = _env.TINOUHUB_POTTOG[name] or 0
+                if os.clock() - last >= POT_CD then
+                    Fire("TogglePotionPause", name)
+                    _env.TINOUHUB_POTTOG[name] = os.clock()
+                    n = n + 1
+                    task.wait(0.2)
+                end
             end
         end
     end
@@ -560,7 +567,12 @@ end })
 RuneTab:CreateSection("Auto-Rune")
 RuneTab:CreateInput({ Name="Seuil de Gems (ex: 10Qn)", CurrentValue="", PlaceholderText="10Qn",
     RemoveTextAfterFocusLost=false, Flag="RuneThresh",
-    Callback=function(t) RUNE_THRESHOLD = parseBig(t) or 0 end })
+    Callback=function(t)
+        RUNE_THRESHOLD = parseBig(t) or 0
+        Rayfield:Notify({Title="Seuil rune",
+            Content = RUNE_THRESHOLD > 0 and ("Seuil = "..string.format("%.3g", RUNE_THRESHOLD).." ("..tostring(t)..")") or ("⚠️ '"..tostring(t).."' invalide → seuil 0"),
+            Duration = 4})
+    end })
 RuneTab:CreateInput({ Name="Devise à surveiller (def: Gem)", CurrentValue="Gem", PlaceholderText="Gem",
     RemoveTextAfterFocusLost=false, Flag="RuneCcy",
     Callback=function(t) if t and t~="" then RUNE_CCY = t end end })
@@ -578,6 +590,7 @@ RuneTab:CreateToggle({ Name="🔮 Auto-Rune (ouvre quand Gems ≥ seuil)", Curre
     Callback=function(v)
         AUTO_RUNE = v
         if v then task.spawn(function()
+            local potOn = false  -- potions gérées au niveau session (pas par roll => pas de spam)
             while AUTO_RUNE and active() do
                 local tgt = runeTarget()
                 local g = currencyAmount(RUNE_CCY)
@@ -586,11 +599,11 @@ RuneTab:CreateToggle({ Name="🔮 Auto-Rune (ouvre quand Gems ≥ seuil)", Curre
                 elseif not tgt then
                     pcall(function() runeStatusLbl:Set("Marque le spot rune") end) task.wait(2)
                 elseif g and g >= RUNE_THRESHOLD then
-                    -- 1) pause le minage  2) active les potions  3) ENSUITE on TP
+                    -- pause minage + active potions UNE FOIS (gardées pour toute la session)
                     MINE_PAUSED = true
-                    if POTIONS_ON then
+                    if POTIONS_ON and not potOn then
                         pcall(function() runeStatusLbl:Set("Activation potions…") end)
-                        setPotions(true)
+                        setPotions(true) potOn = true
                         task.wait(0.6)
                     end
                     discordLog("🔮 Auto-Rune: ouverture", "Gems: **"..tostring(g).."** ≥ seuil", 10181046)
@@ -601,15 +614,16 @@ RuneTab:CreateToggle({ Name="🔮 Auto-Rune (ouvre quand Gems ≥ seuil)", Curre
                         pcall(function() runeStatusLbl:Set("Ouverture… "..RUNE_CCY..": "..tostring(g)) end)
                         task.wait(0.4)
                     end
-                    if POTIONS_ON then setPotions(false) end  -- remet les potions en pause
-                    MINE_PAUSED = false                       -- reprend le minage
-                    discordLog("🔮 Auto-Rune: stop", "Gems sous le seuil", 15105570)
-                    pcall(function() runeStatusLbl:Set("Pause (gems < seuil)") end)
+                    MINE_PAUSED = false  -- reprend le minage (potions restent ON pour la prochaine salve)
+                    pcall(function() runeStatusLbl:Set("Attente (gems < seuil)") end)
                 else
                     pcall(function() runeStatusLbl:Set("Attente | "..RUNE_CCY..": "..tostring(g or "?").." / "..RUNE_THRESHOLD) end)
                     task.wait(2)
                 end
             end
+            -- arrêt de l'auto-rune: on remet les potions en pause + reprend le minage
+            if potOn then setPotions(false) end
+            MINE_PAUSED = false
             pcall(function() runeStatusLbl:Set("Rune: Stopped") end)
         end) end
     end })
