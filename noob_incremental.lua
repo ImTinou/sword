@@ -8,7 +8,7 @@ local UIS        = game:GetService("UserInputService")
 local RunS       = game:GetService("RunService")
 local TPS        = game:GetService("TeleportService")
 
-local VERSION   = "1.9.1"
+local VERSION   = "1.10.0"
 local SAVE_FILE = "tinouhub_noob_config.json"
 
 -- ════════════════════════ Session ═══════════════════════════════════════════
@@ -423,6 +423,42 @@ MineTab:CreateSection("Exchange minéraux")
 MineTab:CreateButton({ Name="Exchange ALL", Callback=function() Fire("ExchangeAllMinerals") Rayfield:Notify({Title="Exchange",Content="Tout échangé",Duration=2}) end })
 MineTab:CreateToggle({ Name="Auto-Exchange (5s)", CurrentValue=false, Flag="AutoExch",
     Callback=function(v) AUTO_EXCH=v if v then task.spawn(function() while AUTO_EXCH and active() do Fire("ExchangeAllMinerals") task.wait(5) end end) end end })
+
+MineTab:CreateSection("Coffres")
+local AUTO_CHEST = false
+local function chestCount(ct)
+    local n = 0
+    pcall(function()
+        local rf = RS:FindFirstChild("GetPlayerData", true)
+        local d = rf and rf:InvokeServer()
+        local c = d and d.CURRENCIES and d.CURRENCIES[ct]
+        n = c and c.Amount and (tonumber(c.Amount[1]) or 0) or 0
+    end)
+    return math.floor(n)
+end
+MineTab:CreateButton({ Name="🎁 Ouvrir tous les coffres maintenant", Callback=function()
+    task.spawn(function()
+        local total = 0
+        for _, ct in ipairs({"Chest", "GoldenChest"}) do
+            local n = math.min(chestCount(ct), 200)
+            for i = 1, n do Fire("OpenChest", ct) total = total + 1 task.wait(0.2) end
+        end
+        Rayfield:Notify({Title="Coffres", Content=total.." coffre(s) ouvert(s)", Duration=4})
+    end)
+end })
+MineTab:CreateToggle({ Name="🎁 Auto-open coffres (10s)", CurrentValue=false, Flag="AutoChest",
+    Callback=function(v) AUTO_CHEST=v if v then task.spawn(function()
+        while AUTO_CHEST and active() do
+            for _, ct in ipairs({"Chest", "GoldenChest"}) do
+                local n = math.min(chestCount(ct), 100)
+                for i = 1, n do
+                    if not (AUTO_CHEST and active()) then break end
+                    Fire("OpenChest", ct) task.wait(0.25)
+                end
+            end
+            task.wait(10)
+        end
+    end) end end })
 
 -- ═══════════════════ RUNE ═══════════════════════════════════════════════════
 local RuneTab = Window:CreateTab("Rune", "gem")
