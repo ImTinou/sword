@@ -8,7 +8,7 @@ local UIS        = game:GetService("UserInputService")
 local RunS       = game:GetService("RunService")
 local TPS        = game:GetService("TeleportService")
 
-local VERSION   = "1.10.1"
+local VERSION   = "1.11.0"
 local SAVE_FILE = "tinouhub_noob_config.json"
 
 -- ════════════════════════ Session ═══════════════════════════════════════════
@@ -658,6 +658,28 @@ RuneTab:CreateButton({ Name="🧪 Dump boutons potions (PlayerGui)", Callback=fu
     print(dump) pcall(function() setclipboard(dump) end)
     Rayfield:Notify({Title="Rune", Content=#L.." boutons — copié + F9", Duration=5})
 end })
+
+RuneTab:CreateSection("Event Foot ⚽")
+RuneTab:CreateButton({ Name="⚽ Preset Football (zone Football + devise Goals)", Callback=function()
+    selectedRune = "Football"
+    RUNE_CCY = "Goals"
+    Rayfield:Notify({Title="Preset Foot", Content="Rune=Football, devise=Goals ✅ — mets un seuil en Goals + Auto-Rune ON", Duration=6})
+end })
+local AUTO_FOOTTREE = false
+RuneTab:CreateToggle({ Name="🌳 Auto-buy arbre foot (cascade)", CurrentValue=false, Flag="AutoFootTree",
+    Callback=function(v) AUTO_FOOTTREE=v if v then task.spawn(function()
+        while AUTO_FOOTTREE and active() do
+            local ok, d = pcall(function() local rf=RS:FindFirstChild("GetPlayerData", true) return rf and rf:InvokeServer() end)
+            if ok and type(d)=="table" and d.FOOTBALL_UI_UPGRADE_TREE then
+                for k in pairs(d.FOOTBALL_UI_UPGRADE_TREE) do
+                    if not (AUTO_FOOTTREE and active()) then break end
+                    Fire("BuyFootballUITreeNode", k)
+                    task.wait(0.05)
+                end
+            end
+            task.wait(3)
+        end
+    end) end end })
 
 -- ═══════════════════ PLAYER ═════════════════════════════════════════════════
 local PlayerTab = Window:CreateTab("Player", "user")
