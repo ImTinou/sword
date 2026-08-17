@@ -31,6 +31,8 @@ local profiles = {
     { active = true,  slots = {"Any","Any","Any"} },
     { active = false, slots = {"Any","Any","Any"} },
     { active = false, slots = {"Any","Any","Any"} },
+    { active = false, slots = {"Any","Any","Any"} },
+    { active = false, slots = {"Any","Any","Any"} },
 }
 
 local function saveConfig()
@@ -63,7 +65,7 @@ local function loadConfig()
         if data.anti_afk        ~= nil then ANTI_AFK         = data.anti_afk        end
         if data.status_interval ~= nil then STATUS_INTERVAL  = data.status_interval end
         if data.profiles   ~= nil then
-            for i = 1, 3 do
+            for i = 1, 5 do
                 if data.profiles[i] then
                     profiles[i].active = data.profiles[i].active
                     profiles[i].slots  = data.profiles[i].slots
@@ -281,7 +283,7 @@ task.spawn(function()
             -- Profiles
             if type(data.profiles) == "table" then
                 local profileChanged = false
-                for i = 1, 3 do
+                for i = 1, 5 do
                     if data.profiles[i] then
                         profiles[i].active = data.profiles[i].active
                         if type(data.profiles[i].slots) == "table" then
@@ -302,7 +304,7 @@ task.spawn(function()
             pcall(function() if uiAutoSell then uiAutoSell:Set(AUTO_SELL) end end)
             pcall(function() if uiMatchAll then uiMatchAll:Set(MATCH_ALL) end end)
             pcall(function() if uiScanRate then uiScanRate:Set(SCAN_RATE) end end)
-            for i = 1, 3 do
+            for i = 1, 5 do
                 pcall(function()
                     if uiProfileToggle[i] then uiProfileToggle[i]:Set(profiles[i].active) end
                 end)
@@ -456,13 +458,14 @@ local ENCHANT_IDS = {
     [4]="Swiftness",    [5]="Critical",     [6]="Resistance",   [7]="Healing",
     [8]="Looting",      [9]="Attraction",   [10]="Stealth",     [11]="Ancient",
     [12]="Desperation", [13]="Insight",     [14]="Thorns",      [15]="Knockback",
+    [16]="Slayer",      [17]="Opulence",
 }
 
 local enchantList = {
     "Any",
     "Fortune","Sharpness","Protection","Haste","Swiftness","Critical",
     "Resistance","Healing","Looting","Attraction","Stealth","Ancient",
-    "Desperation","Insight","Thorns","Knockback",
+    "Desperation","Insight","Thorns","Knockback","Slayer","Opulence",
 }
 
 local function isProtected(sword)
@@ -1007,7 +1010,7 @@ end })
 local ProfTab = Window:CreateTab("Profiles", "star")
 local function getOpt(o) return type(o)=="table" and o[1] or o end
 
-for i = 1, 3 do
+for i = 1, 5 do
     local prof = profiles[i]
     uiProfileSlot[i] = {}
     ProfTab:CreateSection("Profile "..i)
@@ -1954,6 +1957,3 @@ MiscTab:CreateButton({ Name="Rejoin serveur", Callback=function()
     end)
     Rayfield:Notify({Title="Rejoin", Content="Reconnexion...", Duration=2})
 end })
-
--- NOTE: Cases & Shards sont gérés via achats Robux / UI client (pas de remote
--- texte côté serveur). Pour les "free", voir le script fake.lua (purchase faker).
