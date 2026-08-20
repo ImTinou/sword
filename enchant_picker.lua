@@ -6,7 +6,7 @@ local remoteFunc   = game:GetService("ReplicatedStorage").Paper.Remotes.__remote
 local TweenService = game:GetService("TweenService")
 local request      = (syn and syn.request) or (http and http.request) or http_request or request
 
-local VERSION     = "0.7.4"
+local VERSION     = "0.7.5"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
