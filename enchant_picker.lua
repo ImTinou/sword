@@ -5,7 +5,7 @@ local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remote
 local remoteFunc   = game:GetService("ReplicatedStorage").Paper.Remotes.__remotefunction
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "0.7.2"
+local VERSION     = "0.7.1"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
@@ -594,33 +594,36 @@ local function getSwordInfo(sword)
 end
 
 local rarityColors = {
-    Basic=8421504,
-    Common=9807270, Uncommon=5763719, Rare=3447003,
+    Basic=8421504, Common=9807270, Uncommon=5763719, Rare=3447003,
     Epic=10181046, Legendary=16766720, Mythical=15158332,
     Divine=16744448, Super=16711935, Mega=65535,
     Ultra=16776960, Omega=16711680, Extreme=16744272,
     Ultimate=10066329, Insane=16711800, Hyper=16744576,
-    Unique=1752220, Godly=16711680, Celestial=16777215,
-    Eternal=16744703, Cosmic=11534336, Heavenly=16777180,
-    Stellar=16744447, Galactic=9699328, Infinity=16744319,
-    -- UPD 13+ nouvelles rarités
-    Immortal=16711935, Deity=16776960, Transcendent=11141375,
-    Omnipotent=16744320, Omniscient=16777086, Immeasurable=16711806,
-    Primordial=11534165,
+    Godly=16711680, Unique=1752220, Exotic=10181046, Supreme=16766720,
+    Celestial=16777215, Eternal=16744703, Cosmic=11534336, Heavenly=16777180,
+    Stellar=16744447, Galactic=9699328, Deity=16776960, Transcendent=11141375,
+    Omniscient=16777086, Primordial=11534165, Infernal=16711680, Astral=16777215,
+    Nebular=11534336, Vortex=9699328, Empyrean=16776960, Paradoxal=16711935,
+    Enigmatic=10181046, Infinity=16744319, Unlimited=16777215, None=5526612,
 }
 
--- Raretés dans l'ordre croissant (UPD 13+)
 local qualityOrder = {
-    "Basic","Common","Uncommon","Rare","Epic",
-    "Legendary","Mythical","Divine","Super","Mega",
-    "Ultra","Omega","Extreme","Ultimate","Insane",
-    "Hyper","Godly","Unique","Exotic","Supreme",
-    "Celestial","Eternal","Cosmic","Heavenly","Stellar",
-    "Galactic","Infinity",
-    -- UPD 13+
-    "Immortal","Deity","Transcendent","Omnipotent","Omniscient",
-    "Immeasurable","Primordial",
+    "None", "Basic", "Common", "Uncommon", "Rare", "Epic",
+    "Legendary", "Mythical", "Divine", "Super", "Mega",
+    "Ultra", "Omega", "Extreme", "Ultimate", "Insane",
+    "Hyper", "Godly", "Unique", "Exotic", "Supreme",
+    "Celestial", "Eternal", "Cosmic", "Heavenly", "Stellar",
+    "Galactic", "Deity", "Transcendent", "Omniscient", "Primordial",
+    "Infernal", "Astral", "Nebular", "Vortex", "Empyrean",
+    "Paradoxal", "Enigmatic", "Infinity", "Unlimited"
 }
+
+-- On génère rarityPriority automatiquement pour les Webhooks (du plus rare au moins rare)
+local rarityPriority = {}
+for i = #qualityOrder, 1, -1 do
+    table.insert(rarityPriority, qualityOrder[i])
+end
+
 local function qualityRank(text)
     if not text then return 0 end
     for i = #qualityOrder, 1, -1 do
@@ -629,24 +632,23 @@ local function qualityRank(text)
     return 0
 end
 
--- Emoji selon la tier de rareté
 local function rarityEmoji(rarity)
     if not rarity then return "⚔️" end
     local tiers = {
-        -- UPD 13+ (plus rare en premier)
-        {k="Primordial",   e="🔱"}, {k="Immeasurable", e="🌀"}, {k="Omniscient",  e="👁️"},
-        {k="Omnipotent",   e="⚜️"}, {k="Transcendent", e="🌠"}, {k="Deity",       e="🏵️"},
-        {k="Immortal",     e="💠"},
-        -- Base
-        {k="Infinity", e="🌌"}, {k="Galactic", e="🌠"}, {k="Stellar", e="💫"},
-        {k="Heavenly", e="👼"}, {k="Cosmic",   e="🪐"}, {k="Eternal", e="♾️"},
-        {k="Celestial",e="✨"}, {k="Supreme",  e="👑"}, {k="Exotic",  e="🔮"},
-        {k="Unique",   e="💎"}, {k="Godly",    e="🌟"}, {k="Hyper",   e="⚡"},
-        {k="Insane",   e="🔥"}, {k="Ultimate", e="🏆"}, {k="Extreme", e="💥"},
-        {k="Omega",    e="🟣"}, {k="Ultra",    e="🔵"}, {k="Mega",    e="🟢"},
-        {k="Super",    e="🟡"}, {k="Divine",   e="🌈"}, {k="Mythical",e="🟠"},
-        {k="Legendary",e="🟡"}, {k="Epic",     e="🟣"}, {k="Rare",    e="🔵"},
-        {k="Uncommon", e="🟢"}, {k="Common",   e="⚪"}, {k="Basic",   e="⚫"},
+        {k="Unlimited", e="🌌"}, {k="Infinity", e="♾️"}, {k="Enigmatic", e="❓"},
+        {k="Paradoxal", e="🌀"}, {k="Empyrean", e="👑"}, {k="Vortex", e="🌪️"},
+        {k="Nebular", e="🌌"}, {k="Astral", e="🌠"}, {k="Infernal", e="🔥"},
+        {k="Primordial", e="🔱"}, {k="Omniscient", e="👁️"}, {k="Transcendent", e="🌠"},
+        {k="Deity", e="🏵️"}, {k="Galactic", e="🌠"}, {k="Stellar", e="💫"},
+        {k="Heavenly", e="👼"}, {k="Cosmic", e="🪐"}, {k="Eternal", e="♾️"},
+        {k="Celestial",e="✨"}, {k="Supreme", e="👑"}, {k="Exotic", e="🔮"},
+        {k="Unique", e="💎"}, {k="Godly", e="🌟"}, {k="Hyper", e="⚡"},
+        {k="Insane", e="🔥"}, {k="Ultimate", e="🏆"}, {k="Extreme", e="💥"},
+        {k="Omega", e="🟣"}, {k="Ultra", e="🔵"}, {k="Mega", e="🟢"},
+        {k="Super", e="🟡"}, {k="Divine", e="🌈"}, {k="Mythical",e="🟠"},
+        {k="Legendary",e="🟡"}, {k="Epic", e="🟣"}, {k="Rare", e="🔵"},
+        {k="Uncommon", e="🟢"}, {k="Common", e="⚪"}, {k="Basic", e="⚫"},
+        {k="None", e="❌"}
     }
     for _, t in ipairs(tiers) do
         if rarity:find(t.k) then return t.e end
@@ -660,12 +662,6 @@ local function sendWebhook(sword, enchants, info)
     pcall(function()
         -- Couleur selon rareté (ordre précis du plus rare au moins rare)
         local color = 6559471
-        local rarityPriority = {
-            "Infinity","Galactic","Stellar","Heavenly","Cosmic","Eternal",
-            "Celestial","Supreme","Exotic","Unique","Godly","Hyper","Insane",
-            "Ultimate","Extreme","Omega","Ultra","Mega","Super","Divine",
-            "Mythical","Legendary","Epic","Rare","Uncommon","Common","Basic",
-        }
         for _, rarity in ipairs(rarityPriority) do
             if info.rarity and info.rarity:find(rarity) and rarityColors[rarity] then
                 color = rarityColors[rarity]
@@ -730,12 +726,6 @@ local function sendAscenderWebhook(sword, quality, attempts)
     local enchants = getSwordEnchants(sword)
     pcall(function()
         local color = 16766720
-        local rarityPriority = {
-            "Infinity","Galactic","Stellar","Heavenly","Cosmic","Eternal",
-            "Celestial","Supreme","Exotic","Unique","Godly","Hyper","Insane",
-            "Ultimate","Extreme","Omega","Ultra","Mega","Super","Divine",
-            "Mythical","Legendary","Epic","Rare","Uncommon","Common","Basic",
-        }
         for _, rarity in ipairs(rarityPriority) do
             if quality and quality:find(rarity) and rarityColors[rarity] then
                 color = rarityColors[rarity] break
@@ -1097,7 +1087,7 @@ local FARM_Y_OFFSET   = 5
 local farmSafePos     = nil
 local FARM_REACH      = 10
 local FARM_NOCLIP     = true
-local FARM_AUTO_PULL  = true
+local FARM_AUTO_PULL  = false
 local VU              = game:GetService("VirtualUser")
 local RunService      = game:GetService("RunService")
 local farmHpConn      = nil
@@ -1126,8 +1116,11 @@ local function activateTool()
     pcall(function()
         local char = player.Character
         if not char then return end
-        local tool = char:FindFirstChildOfClass("Tool")
-        if tool then tool:Activate() end
+        -- Simule un vrai clic souris pour declencher le SwordScript serveur
+        local cam = workspace.CurrentCamera
+        VU:Button1Down(cam.ViewportSize / 2, cam.CFrame)
+        task.wait(0.05)
+        VU:Button1Up(cam.ViewportSize / 2, cam.CFrame)
     end)
 end
 
@@ -1450,6 +1443,98 @@ FarmTab:CreateButton({
         Rayfield:Notify({Title="Farm", Content="Farm stopped.", Duration=2})
     end,
 })
+
+FarmTab:CreateSection("Mob ESP")
+
+local ESP_ENABLED = false
+local ESP_FILTER = ""
+local activeHighlights = {}
+
+FarmTab:CreateToggle({
+    Name         = "Enable Mob ESP",
+    CurrentValue = false,
+    Flag         = "MobESP",
+    Callback     = function(v) 
+        ESP_ENABLED = v 
+        if not v then
+            for npc, hl in pairs(activeHighlights) do
+                if hl and hl.Parent then hl:Destroy() end
+            end
+            activeHighlights = {}
+        end
+    end,
+})
+
+FarmTab:CreateInput({
+    Name = "Mob Rarity Filter (ex: Cosmic, ou vide pour tous)",
+    PlaceholderText = "Rarity/Name...",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(val)
+        ESP_FILTER = val:lower()
+        -- Force refresh
+        for npc, hl in pairs(activeHighlights) do
+            if hl and hl.Parent then hl:Destroy() end
+        end
+        activeHighlights = {}
+    end
+})
+
+task.spawn(function()
+    while true do
+        task.wait(1)
+        if not ESP_ENABLED then continue end
+        pcall(function()
+            local npcFolder = workspace:FindFirstChild("NPCs") or workspace:FindFirstChild("Mobs") or workspace:FindFirstChild("Enemies")
+            if not npcFolder then return end
+
+            for npc, hl in pairs(activeHighlights) do
+                if not npc.Parent or not npc:FindFirstChild("Humanoid") or npc.Humanoid.Health <= 0 then
+                    hl:Destroy()
+                    activeHighlights[npc] = nil
+                end
+            end
+
+            for _, npc in pairs(npcFolder:GetChildren()) do
+                if npc:FindFirstChild("Humanoid") and npc.Humanoid.Health > 0 then
+                    local name = npc.Name:lower()
+                    if ESP_FILTER == "" or name:find(ESP_FILTER) then
+                        if not activeHighlights[npc] then
+                            local hl = Instance.new("Highlight")
+                            hl.Name = "MobESP"
+                            hl.FillColor = Color3.fromRGB(255, 50, 50)
+                            hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+                            hl.FillTransparency = 0.6
+                            hl.Adornee = npc
+                            hl.Parent = npc
+
+                            local bb = Instance.new("BillboardGui")
+                            bb.Size = UDim2.new(0, 150, 0, 30)
+                            bb.StudsOffset = Vector3.new(0, 4, 0)
+                            bb.AlwaysOnTop = true
+                            bb.Parent = hl
+
+                            local txt = Instance.new("TextLabel")
+                            txt.Size = UDim2.new(1, 0, 1, 0)
+                            txt.BackgroundTransparency = 1
+                            txt.Text = npc.Name
+                            txt.TextColor3 = Color3.fromRGB(255, 50, 50)
+                            txt.TextStrokeTransparency = 0
+                            txt.TextScaled = true
+                            txt.Parent = bb
+
+                            activeHighlights[npc] = hl
+                        end
+                    else
+                        if activeHighlights[npc] then
+                            activeHighlights[npc]:Destroy()
+                            activeHighlights[npc] = nil
+                        end
+                    end
+                end
+            end
+        end)
+    end
+end)
 
 -- ===================== ASCENDER =====================
 local AscTab = Window:CreateTab("Ascender", "trending-up")
