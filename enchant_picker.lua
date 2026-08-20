@@ -5,7 +5,7 @@ local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remote
 local remoteFunc   = game:GetService("ReplicatedStorage").Paper.Remotes.__remotefunction
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "0.7.1"
+local VERSION     = "0.7.3"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
@@ -1063,21 +1063,27 @@ SettingsTab:CreateLabel("github.com/ImTinou/sword")
 -- Tab Farm
 local FarmTab = Window:CreateTab("Farm", "zap")
 
--- Zones dans l'ordre de level requirement (IDs 1→9)
+-- Zones dans l'ordre (IDs 0 à 13)
 local zoneList = {
-    "Beginner's Trials",   -- lvl 0   ID 1
-    "Mystical Forest",     -- lvl 20  ID 2
-    "Stranded Island",     -- lvl 75  ID 3
-    "Snowy Fields",        -- lvl 120 ID 4
-    "Crystal Caverns",     -- lvl 200 ID 5
-    "Volcanic Isles",      -- lvl 300 ID 6
-    "Intraplanetarium",    -- lvl 420 ID 7
-    "Ancient Mineshaft",   -- lvl 510 ID 8
-    "Heavenly Gates",      -- lvl 600 ID 9
+    "Your Factory",
+    "Beginner's Trials",
+    "Mystical Forest",
+    "Stranded Island",
+    "Snowy Fields",
+    "Crystal Caverns",
+    "Volcanic Isles",
+    "Intraplanetarium",
+    "Ancient Mineshaft",
+    "Heavenly Gates",
+    "Galactic HQ",
+    "Hellish Depths",
+    "Apocalyptic Nexus",
+    "Luminal Abyss"
 }
 
 -- Mapping zone name -> area ID (remote arg "Teleport Area", [id])
 local zoneIds = {
+    ["Your Factory"]       = 0,
     ["Beginner's Trials"]  = 1,
     ["Mystical Forest"]    = 2,
     ["Stranded Island"]    = 3,
@@ -1457,6 +1463,7 @@ FarmTab:CreateSection("Mob ESP")
 
 local ESP_ENABLED = false
 local ESP_MIN_RANK = 0
+local ESP_TARGET_ZONE = "All"
 local activeHighlights = {}
 
 FarmTab:CreateToggle({
@@ -1468,6 +1475,9 @@ FarmTab:CreateToggle({
         if not v then
             for npc, hl in pairs(activeHighlights) do
                 if hl and hl.Parent then hl:Destroy() end
+                if npc:FindFirstChild("Head") and npc.Head:FindFirstChild("MobESPText") then
+                    npc.Head.MobESPText:Destroy()
+                end
             end
             activeHighlights = {}
         end
@@ -1486,6 +1496,32 @@ FarmTab:CreateDropdown({
         -- Force refresh
         for npc, hl in pairs(activeHighlights) do
             if hl and hl.Parent then hl:Destroy() end
+            if npc:FindFirstChild("Head") and npc.Head:FindFirstChild("MobESPText") then
+                npc.Head.MobESPText:Destroy()
+            end
+        end
+        activeHighlights = {}
+    end,
+})
+
+local espZoneOptions = {"All"}
+for _, z in ipairs(zoneList) do table.insert(espZoneOptions, z) end
+
+FarmTab:CreateDropdown({
+    Name            = "Target Zone ESP",
+    Options         = espZoneOptions,
+    CurrentOption   = "All",
+    MultipleOptions = false,
+    Callback        = function(opt)
+        local sel = type(opt) == "table" and opt[1] or opt
+        ESP_TARGET_ZONE = sel
+        
+        -- Force refresh
+        for npc, hl in pairs(activeHighlights) do
+            if hl and hl.Parent then hl:Destroy() end
+            if npc:FindFirstChild("Head") and npc.Head:FindFirstChild("MobESPText") then
+                npc.Head.MobESPText:Destroy()
+            end
         end
         activeHighlights = {}
     end,
@@ -1493,14 +1529,26 @@ FarmTab:CreateDropdown({
 
 task.spawn(function()
     local function getMobRarityRank(npc)
-        -- D'abord on vérifie le nom du modèle au cas où
+        -- Filtre de zone strict (via l'attribut Area)
+        if ESP_TARGET_ZONE ~= "All" then
+            local reqId = zoneIds[ESP_TARGET_ZONE]
+            if reqId and npc:GetAttribute("Area") ~= reqId then
+                return 0
+            end
+        end
+
         local rank = qualityRank(npc.Name)
-        if rank > 0 then return rank end
         
-        -- Sinon on cherche dans tous les TextLabels (le nom au-dessus de la tête)
-        for _, desc in pairs(npc:GetDescendants()) do
-            if desc:IsA("TextLabel") then
-                local r = qualityRank(desc.Text)
+        -- Chemin exact et direct (0% lag)
+        local head = npc:FindFirstChild("Head")
+        if head then
+            local rarityLbl = head:FindFirstChild("Gui") 
+                and head.Gui:FindFirstChild("Main") 
+                and head.Gui.Main:FindFirstChild("Info") 
+                and head.Gui.Main.Info:FindFirstChild("Rarity")
+                
+            if rarityLbl and rarityLbl:IsA("TextLabel") then
+                local r = qualityRank(rarityLbl.Text)
                 if r > rank then rank = r end
             end
         end
@@ -1517,6 +1565,9 @@ task.spawn(function()
             for npc, hl in pairs(activeHighlights) do
                 if not npc.Parent or not npc:FindFirstChild("Humanoid") or npc.Humanoid.Health <= 0 then
                     hl:Destroy()
+                    if npc:FindFirstChild("Head") and npc.Head:FindFirstChild("MobESPText") then
+                        npc.Head.MobESPText:Destroy()
+                    end
                     activeHighlights[npc] = nil
                 end
             end
@@ -1542,26 +1593,33 @@ task.spawn(function()
                             hl.Adornee = npc
                             hl.Parent = npc
 
-                            local bb = Instance.new("BillboardGui")
-                            bb.Size = UDim2.new(0, 150, 0, 30)
-                            bb.StudsOffset = Vector3.new(0, 4, 0)
-                            bb.AlwaysOnTop = true
-                            bb.Parent = hl
+                            local head = npc:FindFirstChild("Head")
+                            if head then
+                                local bb = Instance.new("BillboardGui")
+                                bb.Name = "MobESPText"
+                                bb.Size = UDim2.new(0, 150, 0, 30)
+                                bb.StudsOffset = Vector3.new(0, 4, 0)
+                                bb.AlwaysOnTop = true
+                                bb.Parent = head -- Attaché à la tête, plus de texte volant !
 
-                            local txt = Instance.new("TextLabel")
-                            txt.Size = UDim2.new(1, 0, 1, 0)
-                            txt.BackgroundTransparency = 1
-                            txt.Text = npc.Name
-                            txt.TextColor3 = mobColor
-                            txt.TextStrokeTransparency = 0
-                            txt.TextScaled = true
-                            txt.Parent = bb
+                                local txt = Instance.new("TextLabel")
+                                txt.Size = UDim2.new(1, 0, 1, 0)
+                                txt.BackgroundTransparency = 1
+                                txt.Text = baseRarity .. " Mob"
+                                txt.TextColor3 = mobColor
+                                txt.TextStrokeTransparency = 0
+                                txt.TextScaled = true
+                                txt.Parent = bb
+                            end
 
                             activeHighlights[npc] = hl
                         end
                     else
                         if activeHighlights[npc] then
                             activeHighlights[npc]:Destroy()
+                            if npc:FindFirstChild("Head") and npc.Head:FindFirstChild("MobESPText") then
+                                npc.Head.MobESPText:Destroy()
+                            end
                             activeHighlights[npc] = nil
                         end
                     end
