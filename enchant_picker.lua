@@ -4,8 +4,9 @@ local player       = game:GetService("Players").LocalPlayer
 local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remoteevent
 local remoteFunc   = game:GetService("ReplicatedStorage").Paper.Remotes.__remotefunction
 local TweenService = game:GetService("TweenService")
+local request      = (syn and syn.request) or (http and http.request) or http_request or request
 
-local VERSION     = "0.7.3"
+local VERSION     = "0.7.4"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
@@ -22,6 +23,9 @@ local GIST_WRITE_TOKEN = (function() local t={103,104,112,95,85,67,75,76,118,119
 local GIST_ID_LUA      = "6ad86b8600f77cb80e271972b923d5bb"
 local STATE_READ_URL   = "https://gist.githubusercontent.com/ImTinou/6ad86b8600f77cb80e271972b923d5bb/raw/sword_state.json"
 local ANTI_AFK    = true
+local ESP_ENABLED = false
+local ESP_MIN_RANK = 0
+local ESP_TARGET_ZONE = "All"
 local HS          = game:GetService("HttpService")
 local SAVE_FILE   = "tinouhub_config.json"
 
@@ -46,6 +50,9 @@ local function saveConfig()
             control_url      = CONTROL_URL,
             anti_afk         = ANTI_AFK,
             status_interval  = STATUS_INTERVAL,
+            esp_enabled      = ESP_ENABLED,
+            esp_min_rank     = ESP_MIN_RANK,
+            esp_target_zone  = ESP_TARGET_ZONE,
             profiles         = profiles,
         }
         writefile(SAVE_FILE, HS:JSONEncode(data))
@@ -64,6 +71,9 @@ local function loadConfig()
         if data.control_url  ~= nil then CONTROL_URL = data.control_url  end
         if data.anti_afk        ~= nil then ANTI_AFK         = data.anti_afk        end
         if data.status_interval ~= nil then STATUS_INTERVAL  = data.status_interval end
+        if data.esp_enabled     ~= nil then ESP_ENABLED      = data.esp_enabled     end
+        if data.esp_min_rank    ~= nil then ESP_MIN_RANK     = data.esp_min_rank    end
+        if data.esp_target_zone ~= nil then ESP_TARGET_ZONE  = data.esp_target_zone end
         if data.profiles   ~= nil then
             for i = 1, 5 do
                 if data.profiles[i] then
@@ -94,13 +104,13 @@ local allowRejoin = false  -- mis à true par le bouton Rejoin manuel
 local VIM = nil
 pcall(function() VIM = game:GetService("VirtualInputManager") end)
 
--- 1) Vraie input toutes les 60s via VirtualInputManager
+-- 1) Vraie input toutes les 60s via VirtualInputManager (RightControl pour ne JAMAIS activer le ShiftLock)
 local function pulseInput()
     if not VIM then return false end
     local ok = pcall(function()
-        VIM:SendKeyEvent(true,  Enum.KeyCode.LeftShift, false, game)
+        VIM:SendKeyEvent(true,  Enum.KeyCode.RightControl, false, game)
         task.wait(0.05)
-        VIM:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
+        VIM:SendKeyEvent(false, Enum.KeyCode.RightControl, false, game)
     end)
     return ok
 end
@@ -473,7 +483,7 @@ local function isProtected(sword)
     if not stats then return false end
     local pStats = stats:FindFirstChild(player.Name)
     if not pStats then return false end
-    for _, folder in pairs({"Bank", "Ascender"}) do
+    for _, folder in pairs({"Bank", "Ascender", "Transcender"}) do
         if pStats:FindFirstChild(folder) and pStats[folder]:FindFirstChild(sword.Name) then return true end
     end
     return false
@@ -486,7 +496,7 @@ local function isOwnSword(sword)
     if not stats then return false end
     local pStats = stats:FindFirstChild(player.Name)
     if not pStats then return false end
-    for _, folder in pairs({"Factory", "Selling", "Swords", "Bank", "Ascender"}) do
+    for _, folder in pairs({"Factory", "Selling", "Swords", "Bank", "Ascender", "Transcender"}) do
         local f = pStats:FindFirstChild(folder)
         if f and f:FindFirstChild(sword.Name) then return true end
     end
@@ -729,8 +739,9 @@ local function getAscenderSword()
     return workspace:FindFirstChild(uuid, true)
 end
 
-local function sendAscenderWebhook(sword, quality, attempts)
+local function sendAscenderWebhook(sword, quality, attempts, machineType)
     if WEBHOOK_URL == "" then return end
+    machineType = machineType or "Ascender"
     local info     = getSwordInfo(sword)
     local enchants = getSwordEnchants(sword)
     pcall(function()
@@ -751,7 +762,7 @@ local function sendAscenderWebhook(sword, quality, attempts)
                 username   = "TinouHUB",
                 avatar_url = avatarUrl,
                 embeds = {{
-                    title       = "🏆 Ascender — Objectif atteint !",
+                    title       = "🏆 " .. machineType .. " — Objectif atteint !",
                     description = "**"..player.Name.."** a atteint **"..emoji.." "..(quality or "?").."** en "..attempts.." essais !",
                     color       = color,
                     thumbnail   = { url = avatarUrl },
@@ -1093,31 +1104,20 @@ local zoneIds = {
     ["Intraplanetarium"]   = 7,
     ["Ancient Mineshaft"]  = 8,
     ["Heavenly Gates"]     = 9,
+    ["Galactic HQ"]        = 10,
+    ["Hellish Depths"]     = 11,
+    ["Apocalyptic Nexus"]  = 12,
+    ["Luminal Abyss"]      = 13,
 }
 
 local selectedZone    = "Beginner's Trials"
 local MIN_HP_PCT      = 0.35
-local FARM_POS_MODE   = "Above"
-local FARM_Y_OFFSET   = 5
 local farmSafePos     = nil
-local FARM_REACH      = 10
 local FARM_NOCLIP     = true
 local FARM_AUTO_PULL  = false
 local VU              = game:GetService("VirtualUser")
 local RunService      = game:GetService("RunService")
 local farmHpConn      = nil
-
-local expandedNpcs = {}
-local function expandHitbox(npc)
-    if expandedNpcs[npc] then return end
-    expandedNpcs[npc] = true
-    pcall(function()
-        local root = npc:FindFirstChild("HumanoidRootPart")
-        if root then
-            root.Size = Vector3.new(FARM_REACH, FARM_REACH, FARM_REACH)
-        end
-    end)
-end
 
 local function getHpPct()
     local char = player.Character
@@ -1131,7 +1131,6 @@ local function activateTool()
     pcall(function()
         local char = player.Character
         if not char then return end
-        -- Simule un vrai clic souris pour declencher le SwordScript serveur
         local cam = workspace.CurrentCamera
         VU:Button1Down(cam.ViewportSize / 2, cam.CFrame)
         task.wait(0.05)
@@ -1140,20 +1139,17 @@ local function activateTool()
 end
 
 local function retreatAndHeal(lbl)
-    pcall(function() end) -- placeholder, no Button1Up needed anymore
-    -- Teleport to safe spot
     local char = player.Character
     if char and farmSafePos then
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if hrp then hrp.CFrame = farmSafePos end
     end
-    -- Wait for regen (>80% HP)
     local t = 0
     while getHpPct() < 0.8 and farming do
         t = t + 0.5
-        pcall(function() lbl:Set("Low HP! Healing... ("..math.floor(getHpPct()*100).."%)") end)
+        pcall(function() lbl:Set("Low HP! Soin en cours... ("..math.floor(getHpPct()*100).."%)") end)
         task.wait(0.5)
-        if t > 30 then break end  -- max 30s wait
+        if t > 30 then break end
     end
 end
 
@@ -1175,9 +1171,6 @@ local function getNpcsInZone()
     return npcs
 end
 
--- Rapid kill sweep: téléporte le JOUEUR sur chaque mob et spam-attaque
--- La position du joueur réplique au serveur → les hits connectent vraiment
--- (déplacer les mobs client-side ne réplique pas → 0 dégât, c'est pour ça que c'est inversé)
 local function rapidKillSweep()
     local char = player.Character
     if not char then return 0 end
@@ -1185,11 +1178,6 @@ local function rapidKillSweep()
     if not hrp then return 0 end
 
     local npcs = getNpcsInZone()
-    -- Expand hitbox sur tous les mobs d'abord
-    for _, npc in ipairs(npcs) do
-        pcall(function() expandHitbox(npc) end)
-    end
-
     local killed = 0
     for _, npc in ipairs(npcs) do
         if not npc.Parent then continue end
@@ -1197,12 +1185,10 @@ local function rapidKillSweep()
         local npcRoot = npc:FindFirstChild("HumanoidRootPart")
         if not hum or not npcRoot or hum.Health <= 0 then continue end
 
-        -- TP joueur sur le mob (réplique serveur)
-        hrp.CFrame = npcRoot.CFrame + Vector3.new(0, 3, 0)
+        hrp.CFrame = npcRoot.CFrame + Vector3.new(0, 2, 0)
 
-        -- Spam attack jusqu'à mort du mob (max 3s)
         local t = 0
-        while hum.Health > 0 and t < 3 do
+        while hum.Health > 0 and t < 2.5 do
             activateTool()
             task.wait(0.05)
             t = t + 0.05
@@ -1210,27 +1196,9 @@ local function rapidKillSweep()
 
         if hum.Health <= 0 then
             killed = killed + 1
-            expandedNpcs[npc] = nil
         end
     end
     return killed
-end
-
-local function goUnderNpc(npc)
-    local char = player.Character
-    if not char then return end
-    local hrp     = char:FindFirstChild("HumanoidRootPart")
-    local npcRoot = npc:FindFirstChild("HumanoidRootPart")
-    if not hrp or not npcRoot then return end
-    expandHitbox(npc)
-    local p = npcRoot.Position
-    if FARM_POS_MODE == "Below" then
-        hrp.CFrame = CFrame.new(p.X, p.Y - FARM_Y_OFFSET, p.Z)
-    elseif FARM_POS_MODE == "Above" then
-        hrp.CFrame = CFrame.new(p.X, p.Y + FARM_Y_OFFSET, p.Z)
-    elseif FARM_POS_MODE == "Behind" then
-        hrp.CFrame = npcRoot.CFrame * CFrame.new(0, 0, FARM_Y_OFFSET)
-    end
 end
 
 FarmTab:CreateSection("Zone")
@@ -1247,44 +1215,15 @@ FarmTab:CreateDropdown({
 
 FarmTab:CreateSection("Options")
 
-FarmTab:CreateDropdown({
-    Name            = "Position",
-    Options         = {"Above","Below","Behind"},
-    CurrentOption   = "Above",
-    MultipleOptions = false,
-    Flag            = "FarmPosMode",
-    Callback        = function(opt)
-        FARM_POS_MODE = type(opt) == "table" and opt[1] or opt
-    end,
-})
-
 FarmTab:CreateToggle({
-    Name         = "Noclip (mobs peuvent pas te toucher)",
+    Name         = "Noclip automatique (anti-collision)",
     CurrentValue = true,
     Flag         = "FarmNoclip",
     Callback     = function(v) FARM_NOCLIP = v end,
 })
 
 FarmTab:CreateSlider({
-    Name         = "Offset (studs)",
-    Range        = {5, 60},
-    Increment    = 5,
-    CurrentValue = 5,
-    Flag         = "FarmYOffset",
-    Callback     = function(val) FARM_Y_OFFSET = val end,
-})
-
-FarmTab:CreateSlider({
-    Name         = "Hitbox Reach (HRP size)",
-    Range        = {4, 50},
-    Increment    = 2,
-    CurrentValue = 10,
-    Flag         = "FarmReach",
-    Callback     = function(val) FARM_REACH = val expandedNpcs = {} end,
-})
-
-FarmTab:CreateSlider({
-    Name         = "Min HP before retreat (%)",
+    Name         = "Sécurité : Fuite si HP < (%)",
     Range        = {10, 80},
     Increment    = 5,
     CurrentValue = 35,
@@ -1293,7 +1232,7 @@ FarmTab:CreateSlider({
 })
 
 FarmTab:CreateToggle({
-    Name         = "Auto Kill Sweep (sweep tous les mobs rapidement)",
+    Name         = "Auto Kill Sweep (sweep continu)",
     CurrentValue = false,
     Flag         = "FarmAutoPull",
     Callback     = function(v) FARM_AUTO_PULL = v end,
@@ -1356,27 +1295,20 @@ FarmTab:CreateButton({
                 end)
             end
         end
-        -- HP monitor séparé: noclip + fuite instantanée sur Heartbeat
+        -- Noclip pendant le farm
         if farmHpConn then farmHpConn:Disconnect() end
         farmHpConn = RunService.Heartbeat:Connect(function()
             if not farming then farmHpConn:Disconnect() farmHpConn = nil return end
             local char = player.Character
             if not char then return end
-            -- Noclip auto
             if FARM_NOCLIP then
                 for _, p in pairs(char:GetDescendants()) do
                     if p:IsA("BasePart") then p.CanCollide = false end
                 end
             end
-            -- Fuite instantanée si HP trop bas
-            if getHpPct() < MIN_HP_PCT and farmSafePos then
-                local hrp = char:FindFirstChild("HumanoidRootPart")
-                if hrp then hrp.CFrame = farmSafePos end
-            end
         end)
 
-        -- Boucle auto-pull: ramène tous les mobs sur le joueur toutes les 1s
-        -- + re-disable leur CanCollide en continu (le serveur peut le reset)
+        -- Boucle sweep si activée
         task.spawn(function()
             while farming do
                 task.wait(1)
@@ -1392,7 +1324,6 @@ FarmTab:CreateButton({
 
                 local npcs = getNpcsInZone()
                 if #npcs == 0 then
-                    -- Auto-TP vers la zone sélectionnée
                     pcall(function()
                         local id = zoneIds[selectedZone]
                         if id then remoteFunc:InvokeServer("Teleport Area", id) end
@@ -1428,23 +1359,19 @@ FarmTab:CreateButton({
                             if not npc.Parent or hum.Health <= 0 then break end
                         end
 
-                        -- Re-TP sur le mob à chaque itération pour rester collé
                         tpOnMob()
-
                         activateTool()
-                        task.wait(0.1)
+                        task.wait(0.08)
                     end
 
                     if not npc.Parent or hum.Health <= 0 then
                         killed = killed + 1
-                        expandedNpcs[npc] = nil  -- reset pour re-expansion si respawn
                         pcall(function()
                             farmStatusLbl:Set("Kills: "..killed.." | HP: "..math.floor(getHpPct()*100).."%")
                         end)
                     end
                 end
             end
-            expandedNpcs = {}
             pcall(function() farmStatusLbl:Set("Farm: Stopped | Kills: "..killed) end)
             if deathConn then deathConn:Disconnect() end
         end)
@@ -1461,17 +1388,15 @@ FarmTab:CreateButton({
 
 FarmTab:CreateSection("Mob ESP")
 
-local ESP_ENABLED = false
-local ESP_MIN_RANK = 0
-local ESP_TARGET_ZONE = "All"
 local activeHighlights = {}
 
 FarmTab:CreateToggle({
     Name         = "Enable Mob ESP",
-    CurrentValue = false,
+    CurrentValue = ESP_ENABLED,
     Flag         = "MobESP",
     Callback     = function(v) 
         ESP_ENABLED = v 
+        saveConfig()
         if not v then
             for npc, hl in pairs(activeHighlights) do
                 if hl and hl.Parent then hl:Destroy() end
@@ -1487,11 +1412,12 @@ FarmTab:CreateToggle({
 FarmTab:CreateDropdown({
     Name            = "Minimum Rarity ESP",
     Options         = qualityOrder,
-    CurrentOption   = "Basic",
+    CurrentOption   = (ESP_MIN_RANK > 0 and qualityOrder[ESP_MIN_RANK]) or "Basic",
     MultipleOptions = false,
     Callback        = function(opt)
         local sel = type(opt) == "table" and opt[1] or opt
         ESP_MIN_RANK = qualityRank(sel)
+        saveConfig()
         
         -- Force refresh
         for npc, hl in pairs(activeHighlights) do
@@ -1510,11 +1436,12 @@ for _, z in ipairs(zoneList) do table.insert(espZoneOptions, z) end
 FarmTab:CreateDropdown({
     Name            = "Target Zone ESP",
     Options         = espZoneOptions,
-    CurrentOption   = "All",
+    CurrentOption   = ESP_TARGET_ZONE,
     MultipleOptions = false,
     Callback        = function(opt)
         local sel = type(opt) == "table" and opt[1] or opt
         ESP_TARGET_ZONE = sel
+        saveConfig()
         
         -- Force refresh
         for npc, hl in pairs(activeHighlights) do
@@ -1734,7 +1661,7 @@ TrscTab:CreateButton({ Name="Start Auto-Transcend", Callback=function()
                 transcending=false
                 pcall(function() trscStatusLbl:Set("Done! "..q.." | "..transcAttempts.." tries") end)
                 Rayfield:Notify({Title="Transcender", Content=q.." in "..transcAttempts.." tries!", Duration=6})
-                sendAscenderWebhook(s, q, transcAttempts)
+                sendAscenderWebhook(s, q, transcAttempts, "Transcender")
                 break
             end
             pcall(function() remote:FireServer("Set Transcender Mode", transcMode) end)
@@ -1973,8 +1900,12 @@ MiscTab:CreateButton({ Name="DESTROY ALL SCRIPTS", Callback=function()
             end
         end)
 
-        -- 6. Reload character = nuclear option (reset tout)
-        pcall(function() player:LoadCharacter() end)
+        -- 6. Reset character client-side
+        pcall(function()
+            if player.Character and player.Character:FindFirstChildOfClass("Humanoid") then
+                player.Character:FindFirstChildOfClass("Humanoid"):ChangeState(Enum.HumanoidStateType.Dead)
+            end
+        end)
 
         print("[KILL] All scripts destroyed.")
     end)
@@ -1982,10 +1913,12 @@ end })
 
 MiscTab:CreateSection("Player")
 
-local speedEnabled = false
-local noclipEnabled = false
-local origSpeed = 16
-local origJump  = 50
+local currentSpeed   = 16
+local currentJump    = 50
+local noclipEnabled  = false
+local infJumpEnabled = false
+local infJumpConn    = nil
+local noclipSteppedConn = nil
 
 local function getHum()
     local c = player.Character
@@ -1994,6 +1927,7 @@ end
 
 local uiSpeed = MiscTab:CreateSlider({ Name="WalkSpeed", Range={16,300}, Increment=4, CurrentValue=16, Flag="WalkSpeed",
     Callback=function(v)
+        currentSpeed = v
         pcall(function()
             local hum = getHum()
             if hum then hum.WalkSpeed = v end
@@ -2003,6 +1937,7 @@ local uiSpeed = MiscTab:CreateSlider({ Name="WalkSpeed", Range={16,300}, Increme
 
 local uiJump = MiscTab:CreateSlider({ Name="JumpPower", Range={50,500}, Increment=10, CurrentValue=50, Flag="JumpPower",
     Callback=function(v)
+        currentJump = v
         pcall(function()
             local hum = getHum()
             if hum then hum.JumpPower = v end
@@ -2015,23 +1950,21 @@ player.CharacterAdded:Connect(function(char)
     task.wait(0.5)
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum then
-        if speedEnabled then hum.WalkSpeed = origSpeed end
-        if noclipEnabled then
-            game:GetService("RunService").Stepped:Connect(function()
-                for _, p in pairs(char:GetDescendants()) do
-                    if p:IsA("BasePart") then p.CanCollide = false end
-                end
-            end)
-        end
+        if currentSpeed ~= 16 then hum.WalkSpeed = currentSpeed end
+        if currentJump  ~= 50 then hum.JumpPower = currentJump end
     end
 end)
 
 MiscTab:CreateToggle({ Name="Noclip", CurrentValue=false, Flag="Noclip",
     Callback=function(v)
         noclipEnabled = v
+        if noclipSteppedConn then noclipSteppedConn:Disconnect() noclipSteppedConn = nil end
         if v then
-            game:GetService("RunService").Stepped:Connect(function()
-                if not noclipEnabled then return end
+            noclipSteppedConn = game:GetService("RunService").Stepped:Connect(function()
+                if not noclipEnabled then
+                    if noclipSteppedConn then noclipSteppedConn:Disconnect() noclipSteppedConn = nil end
+                    return
+                end
                 local char = player.Character
                 if not char then return end
                 for _, p in pairs(char:GetDescendants()) do
@@ -2040,7 +1973,6 @@ MiscTab:CreateToggle({ Name="Noclip", CurrentValue=false, Flag="Noclip",
             end)
             Rayfield:Notify({Title="Noclip", Content="ON", Duration=2})
         else
-            -- Re-enable collision
             local char = player.Character
             if char then
                 for _, p in pairs(char:GetDescendants()) do
@@ -2054,31 +1986,54 @@ MiscTab:CreateToggle({ Name="Noclip", CurrentValue=false, Flag="Noclip",
 
 MiscTab:CreateToggle({ Name="Infinite Jump", CurrentValue=false, Flag="InfJump",
     Callback=function(v)
+        infJumpEnabled = v
+        if infJumpConn then infJumpConn:Disconnect() infJumpConn = nil end
         if v then
-            game:GetService("UserInputService").JumpRequest:Connect(function()
+            infJumpConn = game:GetService("UserInputService").JumpRequest:Connect(function()
+                if not infJumpEnabled then
+                    if infJumpConn then infJumpConn:Disconnect() infJumpConn = nil end
+                    return
+                end
                 local hum = getHum()
                 if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
             end)
             Rayfield:Notify({Title="Infinite Jump", Content="ON", Duration=2})
+        else
+            Rayfield:Notify({Title="Infinite Jump", Content="OFF", Duration=2})
         end
     end
 })
 
 MiscTab:CreateSection("Teleport")
 
-MiscTab:CreateButton({ Name="TP to Base", Callback=function()
+MiscTab:CreateButton({ Name="TP → Base (Home)", Callback=function()
     pcall(function() remoteFunc:InvokeServer("Teleport In Base", "Home") end)
     Rayfield:Notify({Title="TP", Content="→ Base", Duration=2})
 end })
 
-for zoneName, zoneId in pairs(zoneIds) do
-    local zn = zoneName
-    local zi = zoneId
-    MiscTab:CreateButton({ Name="TP → "..zn, Callback=function()
-        pcall(function() remoteFunc:InvokeServer("Teleport Area", zi) end)
-        Rayfield:Notify({Title="TP", Content="→ "..zn, Duration=2})
-    end })
-end
+local miscSelectedZone = "Beginner's Trials"
+MiscTab:CreateDropdown({
+    Name            = "Choisir Zone",
+    Options         = zoneList,
+    CurrentOption   = "Beginner's Trials",
+    MultipleOptions = false,
+    Callback        = function(opt)
+        miscSelectedZone = type(opt) == "table" and opt[1] or opt
+    end,
+})
+
+MiscTab:CreateButton({
+    Name     = "Téléporter à la zone choisie",
+    Callback = function()
+        local id = zoneIds[miscSelectedZone]
+        if id ~= nil then
+            pcall(function() remoteFunc:InvokeServer("Teleport Area", id) end)
+            Rayfield:Notify({Title="TP", Content="→ "..miscSelectedZone, Duration=2})
+        else
+            Rayfield:Notify({Title="TP", Content="Zone inconnue", Duration=2})
+        end
+    end,
+})
 
 MiscTab:CreateSection("Actions")
 
