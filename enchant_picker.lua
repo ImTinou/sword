@@ -5,7 +5,7 @@ local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remote
 local remoteFunc   = game:GetService("ReplicatedStorage").Paper.Remotes.__remotefunction
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "0.7.1"
+local VERSION     = "0.7.2"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
@@ -1097,7 +1097,7 @@ local FARM_Y_OFFSET   = 5
 local farmSafePos     = nil
 local FARM_REACH      = 10
 local FARM_NOCLIP     = true
-local FARM_AUTO_PULL  = false
+local FARM_AUTO_PULL  = true
 local VU              = game:GetService("VirtualUser")
 local RunService      = game:GetService("RunService")
 local farmHpConn      = nil
@@ -1400,8 +1400,16 @@ FarmTab:CreateButton({
                     local hum = npc:FindFirstChildOfClass("Humanoid")
                     if not hum or hum.Health <= 0 then continue end
 
-                    expandHitbox(npc)
-                    goUnderNpc(npc)
+                    local function tpOnMob()
+                        local npcRoot = npc:FindFirstChild("HumanoidRootPart")
+                        local char = player.Character
+                        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                        if hrp and npcRoot then
+                            hrp.CFrame = npcRoot.CFrame + Vector3.new(0, 2, 0)
+                        end
+                    end
+
+                    tpOnMob()
 
                     while npc.Parent and hum.Health > 0 and farming do
                         if not player.Character then break end
@@ -1410,14 +1418,10 @@ FarmTab:CreateButton({
                             retreatAndHeal(farmStatusLbl)
                             if not farming then break end
                             if not npc.Parent or hum.Health <= 0 then break end
-                            goUnderNpc(npc)
                         end
 
-                        local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-                        local npcRoot = npc:FindFirstChild("HumanoidRootPart")
-                        if hrp and npcRoot and (hrp.Position - npcRoot.Position).Magnitude > FARM_REACH + 5 then
-                            goUnderNpc(npc)
-                        end
+                        -- Re-TP sur le mob à chaque itération pour rester collé
+                        tpOnMob()
 
                         activateTool()
                         task.wait(0.1)
