@@ -5,7 +5,7 @@ local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remote
 local remoteFunc   = game:GetService("ReplicatedStorage").Paper.Remotes.__remotefunction
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "0.7.1"
+local VERSION     = "0.7.2"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
@@ -602,9 +602,18 @@ local rarityColors = {
     Godly=16711680, Unique=1752220, Exotic=10181046, Supreme=16766720,
     Celestial=16777215, Eternal=16744703, Cosmic=11534336, Heavenly=16777180,
     Stellar=16744447, Galactic=9699328, Deity=16776960, Transcendent=11141375,
-    Omniscient=16777086, Primordial=11534165, Infernal=16711680, Astral=16777215,
-    Nebular=11534336, Vortex=9699328, Empyrean=16776960, Paradoxal=16711935,
-    Enigmatic=10181046, Infinity=16744319, Unlimited=16777215, None=5526612,
+    Omniscient=16777086, 
+    Primordial=16776960, -- Jaune
+    Infernal=16711680,   -- Rouge
+    Astral=16777215,     -- Blanc
+    Nebular=10181046,    -- Violet
+    Vortex=65535,        -- Cyan
+    Empyrean=16744448,   -- Orange
+    Paradoxal=16711935,  -- Magenta
+    Enigmatic=8421504,   -- Gris foncé / Mystère
+    Infinity=16777215,   -- Blanc
+    Unlimited=16711935,  -- Magenta
+    None=5526612,
 }
 
 local qualityOrder = {
@@ -1447,7 +1456,7 @@ FarmTab:CreateButton({
 FarmTab:CreateSection("Mob ESP")
 
 local ESP_ENABLED = false
-local ESP_FILTER = ""
+local ESP_MIN_RANK = 0
 local activeHighlights = {}
 
 FarmTab:CreateToggle({
@@ -1465,18 +1474,21 @@ FarmTab:CreateToggle({
     end,
 })
 
-FarmTab:CreateInput({
-    Name = "Mob Rarity Filter (ex: Cosmic, ou vide pour tous)",
-    PlaceholderText = "Rarity/Name...",
-    RemoveTextAfterFocusLost = false,
-    Callback = function(val)
-        ESP_FILTER = val:lower()
+FarmTab:CreateDropdown({
+    Name            = "Minimum Rarity ESP",
+    Options         = qualityOrder,
+    CurrentOption   = "Basic",
+    MultipleOptions = false,
+    Callback        = function(opt)
+        local sel = type(opt) == "table" and opt[1] or opt
+        ESP_MIN_RANK = qualityRank(sel)
+        
         -- Force refresh
         for npc, hl in pairs(activeHighlights) do
             if hl and hl.Parent then hl:Destroy() end
         end
         activeHighlights = {}
-    end
+    end,
 })
 
 task.spawn(function()
@@ -1496,12 +1508,20 @@ task.spawn(function()
 
             for _, npc in pairs(npcFolder:GetChildren()) do
                 if npc:FindFirstChild("Humanoid") and npc.Humanoid.Health > 0 then
-                    local name = npc.Name:lower()
-                    if ESP_FILTER == "" or name:find(ESP_FILTER) then
+                    local rank = qualityRank(npc.Name)
+                    -- On affiche si la rareté est >= au minimum choisi
+                    if rank >= ESP_MIN_RANK then
                         if not activeHighlights[npc] then
+                            local baseRarity = qualityOrder[rank] or "Basic"
+                            local cInt = rarityColors[baseRarity] or 16777215
+                            local r = math.floor(cInt / 65536) % 256
+                            local g = math.floor(cInt / 256) % 256
+                            local b = cInt % 256
+                            local mobColor = Color3.fromRGB(r, g, b)
+
                             local hl = Instance.new("Highlight")
                             hl.Name = "MobESP"
-                            hl.FillColor = Color3.fromRGB(255, 50, 50)
+                            hl.FillColor = mobColor
                             hl.OutlineColor = Color3.fromRGB(255, 255, 255)
                             hl.FillTransparency = 0.6
                             hl.Adornee = npc
@@ -1517,7 +1537,7 @@ task.spawn(function()
                             txt.Size = UDim2.new(1, 0, 1, 0)
                             txt.BackgroundTransparency = 1
                             txt.Text = npc.Name
-                            txt.TextColor3 = Color3.fromRGB(255, 50, 50)
+                            txt.TextColor3 = mobColor
                             txt.TextStrokeTransparency = 0
                             txt.TextScaled = true
                             txt.Parent = bb
