@@ -5,7 +5,7 @@ local remote       = game:GetService("ReplicatedStorage").Paper.Remotes.__remote
 local remoteFunc   = game:GetService("ReplicatedStorage").Paper.Remotes.__remotefunction
 local TweenService = game:GetService("TweenService")
 
-local VERSION     = "0.7.2"
+local VERSION     = "0.7.1"
 local SCAN_RATE   = 0.5
 local MATCH_ALL   = true
 local scanning    = false
@@ -1492,6 +1492,21 @@ FarmTab:CreateDropdown({
 })
 
 task.spawn(function()
+    local function getMobRarityRank(npc)
+        -- D'abord on vérifie le nom du modèle au cas où
+        local rank = qualityRank(npc.Name)
+        if rank > 0 then return rank end
+        
+        -- Sinon on cherche dans tous les TextLabels (le nom au-dessus de la tête)
+        for _, desc in pairs(npc:GetDescendants()) do
+            if desc:IsA("TextLabel") then
+                local r = qualityRank(desc.Text)
+                if r > rank then rank = r end
+            end
+        end
+        return rank
+    end
+
     while true do
         task.wait(1)
         if not ESP_ENABLED then continue end
@@ -1508,7 +1523,7 @@ task.spawn(function()
 
             for _, npc in pairs(npcFolder:GetChildren()) do
                 if npc:FindFirstChild("Humanoid") and npc.Humanoid.Health > 0 then
-                    local rank = qualityRank(npc.Name)
+                    local rank = getMobRarityRank(npc)
                     -- On affiche si la rareté est >= au minimum choisi
                     if rank >= ESP_MIN_RANK then
                         if not activeHighlights[npc] then
